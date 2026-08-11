@@ -1,0 +1,30 @@
+# Dependencies
+node_modules/
+.next/
+apps/api/.venv/
+apps/api/__pycache__/
+apps/api/**/__pycache__/
+*.pyc
+apps/api/settleflow.db
+apps/api/email_previews/*.html
+
+# Environment
+.env
+.env.local
+apps/api/.env
+apps/web/.env.local
+
+# Foundry
+contracts/out/
+contracts/cache/
+contracts/lib/
+
+# IDE
+.DS_Store
+.idea/
+.vscode/
+
+# Python
+*.egg-info/
+.pytest_cache/
+htmlcov/
