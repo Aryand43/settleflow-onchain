@@ -40,3 +40,14 @@ export const PAYMENT_CONTRACT = process.env.NEXT_PUBLIC_PAYMENT_CONTRACT_ADDRESS
 export const USDC_CONTRACT = process.env.NEXT_PUBLIC_USDC_CONTRACT_ADDRESS as `0x${string}` | undefined;
 
 export const chainConfigured = Boolean(CHAIN_ID && RPC_URL && PAYMENT_CONTRACT && USDC_CONTRACT);
+
+const explorers: Record<number, string> = {
+  8453: "https://basescan.org",
+  84532: "https://sepolia.basescan.org",
+};
+
+/** Returns null on an unknown chain rather than guessing an explorer host. */
+export function explorerTxUrl(hash: string) {
+  const base = CHAIN_ID ? explorers[CHAIN_ID] : undefined;
+  return base ? `${base}/tx/${hash}` : null;
+}

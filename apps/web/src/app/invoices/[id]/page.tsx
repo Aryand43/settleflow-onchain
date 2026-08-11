@@ -1,14 +1,34 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { QRCodeSVG } from "qrcode.react";
-import { api, DEMO_MODE, type ActivityEvent, type Invoice } from "@/lib/api";
+import { ArrowLeft, BellRing, ExternalLink, FastForward, Send, Wallet } from "lucide-react";
 import { StatusBadge } from "@/components/StatusBadge";
-import { formatCurrency, formatDate } from "@/lib/utils";
+import {
+  Alert,
+  Button,
+  Card,
+  CardTitle,
+  CopyButton,
+  PageHeader,
+  Skeleton,
+} from "@/components/ui";
+import { explorerTxUrl } from "@/lib/contracts";
+import { api, DEMO_MODE, type ActivityEvent, type Invoice } from "@/lib/api";
+import { formatCurrency, formatDate, formatDateTime, formatDueRelative, truncateHash } from "@/lib/utils";
+
+function Row({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex items-baseline justify-between gap-4 py-2.5">
+      <dt className="shrink-0 text-sm text-content-muted">{label}</dt>
+      <dd className="min-w-0 text-right text-sm text-content">{children}</dd>
+    </div>
+  );
+}
 
 export default function InvoiceDetailPage({ params }: { params: { id: string } }) {
-  const id = parseInt(params.id, 10);
+  const id = Number(params.id);
   const [invoice, setInvoice] = useState<Invoice | null>(null);
   const [activity, setActivity] = useState<ActivityEvent[]>([]);
   const [loading, setLoading] = useState(true);
@@ -16,7 +36,7 @@ export default function InvoiceDetailPage({ params }: { params: { id: string } }
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  async function load() {
+  const load = useCallback(async () => {
     try {
       const [inv, act] = await Promise.all([api.invoice(id), api.invoiceActivity(id)]);
       setInvoice(inv);
@@ -26,11 +46,16 @@ export default function InvoiceDetailPage({ params }: { params: { id: string } }
     } finally {
       setLoading(false);
     }
-  }
+  }, [id]);
 
   useEffect(() => {
-    load();
-  }, [id]);
+    if (Number.isInteger(id) && id > 0) {
+      load();
+    } else {
+      setError("That invoice id isn't valid.");
+      setLoading(false);
+    }
+  }, [id, load]);
 
   async function runAction(name: string, fn: () => Promise<unknown>) {
     setActionLoading(name);
@@ -49,129 +74,238 @@ export default function InvoiceDetailPage({ params }: { params: { id: string } }
     }
   }
 
-  if (loading) return <div className="text-slate-400">Loading invoice...</div>;
-  if (error && !invoice) {
-    return <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-6 text-red-200">{error}</div>;
+  if (loading) {
+    return (
+      <div className="space-y-6">
+        <Skeleton className="h-4 w-32" />
+        <Skeleton className="h-9 w-40" />
+        <div className="grid gap-6 lg:grid-cols-2">
+          <Skeleton className="h-96 rounded-xl" />
+          <Skeleton className="h-96 rounded-xl" />
+        </div>
+      </div>
+    );
   }
-  if (!invoice) return null;
+
+  if (!invoice) {
+    return (
+      <div className="rise mx-auto max-w-md py-12 text-center">
+        <h1 className="text-lg font-medium text-content">Invoice not available</h1>
+        <p className="mt-1.5 text-sm text-content-muted">
+          {error ?? "This invoice doesn't exist or was removed."}
+        </p>
+        <Link
+          href="/invoices"
+          className="mt-5 inline-flex items-center gap-1.5 text-sm font-medium text-accent-text hover:underline"
+        >
+          <ArrowLeft aria-hidden className="h-4 w-4" />
+          Back to invoices
+        </Link>
+      </div>
+    );
+  }
+
+  const isPaid = invoice.status === "paid";
+  const txUrl = invoice.blockchain_tx_hash ? explorerTxUrl(invoice.blockchain_tx_hash) : null;
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <Link href="/invoices" className="text-sm text-blue-400 hover:underline">
-            ← Back to invoices
-          </Link>
-          <h1 className="mt-2 text-2xl font-semibold text-white">{invoice.invoice_number}</h1>
-          <p className="mt-1 text-slate-400">{invoice.description}</p>
+    <div className="rise space-y-6">
+      <div>
+        <Link
+          href="/invoices"
+          className="inline-flex items-center gap-1.5 text-sm text-content-muted transition-colors duration-150 hover:text-content"
+        >
+          <ArrowLeft aria-hidden className="h-4 w-4" />
+          Back to invoices
+        </Link>
+        <div className="mt-3">
+          <PageHeader
+            title={invoice.invoice_number}
+            description={invoice.description}
+            action={<StatusBadge status={invoice.status} />}
+          />
         </div>
-        <StatusBadge status={invoice.status} />
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-2">
-        <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-6 space-y-4">
-          <h2 className="text-lg font-medium text-white">Invoice details</h2>
-          <dl className="grid gap-3 text-sm">
-            <div className="flex justify-between">
-              <dt className="text-slate-500">Customer</dt>
-              <dd className="text-white">{invoice.customer_name}</dd>
-            </div>
-            <div className="flex justify-between">
-              <dt className="text-slate-500">Amount</dt>
-              <dd className="text-white">{formatCurrency(invoice.amount, invoice.currency)}</dd>
-            </div>
-            <div className="flex justify-between">
-              <dt className="text-slate-500">Due date</dt>
-              <dd className="text-white">{formatDate(invoice.due_date)}</dd>
-            </div>
-            <div className="flex justify-between">
-              <dt className="text-slate-500">Reminders sent</dt>
-              <dd className="text-white">{invoice.reminder_count}</dd>
-            </div>
+      {message && <Alert tone="success">{message}</Alert>}
+      {error && <Alert tone="error">{error}</Alert>}
+
+      <div className="grid items-start gap-6 lg:grid-cols-2">
+        <Card className="p-6">
+          <CardTitle>Invoice details</CardTitle>
+          <dl className="mt-3 divide-y divide-line">
+            <Row label="Customer">{invoice.customer_name}</Row>
+            <Row label="Amount">
+              <span className="tabular font-medium">
+                {formatCurrency(invoice.amount, invoice.currency)}
+              </span>
+            </Row>
+            <Row label="Due date">
+              <span className="tabular">{formatDate(invoice.due_date)}</span>
+              {!isPaid && (
+                <span className="block text-xs text-content-muted">
+                  {formatDueRelative(invoice.due_date)}
+                </span>
+              )}
+            </Row>
+            <Row label="Reminders sent">
+              <span className="tabular">{invoice.reminder_count}</span>
+            </Row>
             {invoice.blockchain_tx_hash && (
-              <div>
-                <dt className="text-slate-500">Transaction</dt>
-                <dd className="mt-1 break-all font-mono text-xs text-emerald-400">
-                  {invoice.blockchain_tx_hash}
-                </dd>
-              </div>
+              <Row label="Transaction">
+                <span className="inline-flex items-center gap-2">
+                  <span
+                    title={invoice.blockchain_tx_hash}
+                    className="tabular font-mono text-xs text-paid"
+                  >
+                    {truncateHash(invoice.blockchain_tx_hash)}
+                  </span>
+                  <CopyButton value={invoice.blockchain_tx_hash} label="Copy" />
+                  {txUrl && (
+                    <a
+                      href={txUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-accent-text hover:text-content"
+                    >
+                      <ExternalLink aria-hidden className="h-3.5 w-3.5" />
+                      <span className="sr-only">View transaction on the block explorer</span>
+                    </a>
+                  )}
+                </span>
+              </Row>
             )}
           </dl>
 
           {invoice.payment_url && (
-            <div className="pt-4 border-t border-slate-800">
-              <p className="text-sm text-slate-500 mb-2">Payment link</p>
+            <div className="mt-5 border-t border-line pt-5">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm text-content-muted">Payment link</p>
+                <CopyButton value={invoice.payment_url} label="Copy link" />
+              </div>
               <a
                 href={invoice.payment_url}
                 target="_blank"
                 rel="noreferrer"
-                className="text-sm text-blue-400 break-all hover:underline"
+                className="mt-2 block break-all text-sm text-accent-text hover:underline"
               >
                 {invoice.payment_url}
               </a>
-              <div className="mt-4 flex justify-center rounded-lg bg-white p-4">
-                <QRCodeSVG value={invoice.payment_url} size={128} />
+              <div className="mt-4 flex flex-col items-center gap-2">
+                {/* QR needs a light quiet zone to scan reliably. */}
+                <div className="rounded-xl bg-white p-3">
+                  <QRCodeSVG value={invoice.payment_url} size={128} />
+                </div>
+                <p className="text-xs text-content-muted">Scan to open the payment page</p>
               </div>
             </div>
           )}
-        </div>
+        </Card>
 
-        <div className="space-y-4">
-          <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-6 space-y-3">
-            <h2 className="text-lg font-medium text-white">Actions</h2>
-            <div className="flex flex-wrap gap-2">
-              <button
+        <div className="space-y-6">
+          <Card className="p-6">
+            <CardTitle>Actions</CardTitle>
+
+            <div className="mt-4 flex flex-wrap gap-2">
+              <Button
+                variant="secondary"
+                size="sm"
                 onClick={() => runAction("send", () => api.sendInvoice(id))}
+                loading={actionLoading === "send"}
                 disabled={!!actionLoading}
-                className="rounded-lg bg-slate-700 px-3 py-2 text-sm text-white hover:bg-slate-600 disabled:opacity-50"
               >
+                <Send aria-hidden className="h-4 w-4" />
                 Send invoice email
-              </button>
-              <button
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
                 onClick={() => runAction("reminder", () => api.sendReminder(id))}
-                disabled={!!actionLoading || invoice.status === "paid"}
-                className="rounded-lg bg-slate-700 px-3 py-2 text-sm text-white hover:bg-slate-600 disabled:opacity-50"
+                loading={actionLoading === "reminder"}
+                disabled={!!actionLoading || isPaid}
               >
+                <BellRing aria-hidden className="h-4 w-4" />
                 Send reminder
-              </button>
-              <button
-                onClick={() => runAction("time", () => api.simulateTime(id))}
-                disabled={!!actionLoading || invoice.status === "paid"}
-                className="rounded-lg bg-amber-600 px-3 py-2 text-sm text-white hover:bg-amber-500 disabled:opacity-50"
-              >
-                Simulate time
-              </button>
-              {DEMO_MODE && invoice.status !== "paid" && (
-                <button
-                  onClick={() => runAction("pay", () => api.simulatePayment(id))}
-                  disabled={!!actionLoading}
-                  className="rounded-lg bg-emerald-600 px-3 py-2 text-sm text-white hover:bg-emerald-500 disabled:opacity-50"
-                >
-                  Simulate payment
-                </button>
-              )}
+              </Button>
             </div>
-            {message && <p className="text-sm text-emerald-300">{message}</p>}
-            {error && <p className="text-sm text-red-300">{error}</p>}
-          </div>
 
-          <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-6">
-            <h2 className="mb-4 text-lg font-medium text-white">Activity timeline</h2>
+            {/*
+             * Demo controls are fenced off from the real actions above. They
+             * stand in for events the product would otherwise learn from the
+             * chain, so they must never look like a button that moves money.
+             */}
+            {DEMO_MODE && (
+              <div className="mt-5 border-t border-dashed border-line-strong pt-4">
+                <p className="text-xs uppercase tracking-wide text-content-muted">
+                  Demo controls
+                </p>
+                <p className="mt-1 text-xs text-content-muted">
+                  Simulated locally. No transaction is broadcast.
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Button
+                    variant="demo"
+                    size="sm"
+                    onClick={() => runAction("time", () => api.simulateTime(id))}
+                    loading={actionLoading === "time"}
+                    disabled={!!actionLoading || isPaid}
+                  >
+                    <FastForward aria-hidden className="h-4 w-4" />
+                    Simulate time
+                  </Button>
+                  <Button
+                    variant="demo"
+                    size="sm"
+                    onClick={() => runAction("pay", () => api.simulatePayment(id))}
+                    loading={actionLoading === "pay"}
+                    disabled={!!actionLoading || isPaid}
+                  >
+                    <Wallet aria-hidden className="h-4 w-4" />
+                    Simulate payment
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {isPaid && (
+              <p className="mt-4 text-xs text-content-muted">
+                This invoice is settled. Reminders and simulations are disabled.
+              </p>
+            )}
+          </Card>
+
+          <Card className="p-6">
+            <CardTitle>Activity timeline</CardTitle>
             {activity.length === 0 ? (
-              <p className="text-sm text-slate-500">No activity yet.</p>
+              <p className="mt-4 text-sm text-content-muted">
+                Nothing has happened on this invoice yet.
+              </p>
             ) : (
-              <ul className="space-y-4">
-                {activity.map((event) => (
-                  <li key={event.id} className="border-l-2 border-blue-600 pl-4">
-                    <p className="text-sm text-slate-200">{event.message}</p>
-                    <p className="text-xs text-slate-500">
-                      {event.event_type} · {formatDate(event.created_at)}
-                    </p>
+              <ol className="mt-4">
+                {activity.map((event, i) => (
+                  <li key={event.id} className="relative flex gap-3 pb-5 last:pb-0">
+                    {/* Hairline rail plus a node, rather than a heavy colored edge. */}
+                    {i < activity.length - 1 && (
+                      <span
+                        aria-hidden
+                        className="absolute left-[3px] top-3 h-full w-px bg-line"
+                      />
+                    )}
+                    <span
+                      aria-hidden
+                      className="relative mt-1.5 h-[7px] w-[7px] shrink-0 rounded-full bg-content-muted"
+                    />
+                    <div className="min-w-0">
+                      <p className="text-sm text-content-secondary">{event.message}</p>
+                      <p className="tabular mt-0.5 text-xs text-content-muted">
+                        {formatDateTime(event.created_at)}
+                      </p>
+                    </div>
                   </li>
                 ))}
-              </ul>
+              </ol>
             )}
-          </div>
+          </Card>
         </div>
       </div>
     </div>

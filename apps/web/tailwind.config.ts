@@ -9,8 +9,43 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        background: "var(--background)",
-        foreground: "var(--foreground)",
+        canvas: "var(--canvas)",
+        surface: {
+          DEFAULT: "var(--surface)",
+          raised: "var(--surface-raised)",
+          sunken: "var(--surface-sunken)",
+        },
+        line: {
+          DEFAULT: "var(--line)",
+          strong: "var(--line-strong)",
+        },
+        content: {
+          DEFAULT: "var(--text)",
+          secondary: "var(--text-secondary)",
+          muted: "var(--text-muted)",
+        },
+        accent: {
+          DEFAULT: "var(--accent)",
+          hover: "var(--accent-hover)",
+          text: "var(--accent-text)",
+          on: "var(--accent-on)",
+        },
+        paid: { DEFAULT: "var(--paid)", tint: "var(--paid-tint)" },
+        pending: { DEFAULT: "var(--pending)", tint: "var(--pending-tint)" },
+        overdue: { DEFAULT: "var(--overdue)", tint: "var(--overdue-tint)" },
+        neutral: { DEFAULT: "var(--neutral)", tint: "var(--neutral-tint)" },
+        disputed: { DEFAULT: "var(--disputed)", tint: "var(--disputed-tint)" },
+      },
+      fontFamily: {
+        sans: ["var(--font-sans)", "ui-sans-serif", "system-ui", "sans-serif"],
+        mono: ["var(--font-mono)", "ui-monospace", "SFMono-Regular", "monospace"],
+      },
+      boxShadow: {
+        card: "var(--shadow-card)",
+        lifted: "var(--shadow-lifted)",
+      },
+      transitionTimingFunction: {
+        out: "var(--ease-out)",
       },
     },
   },

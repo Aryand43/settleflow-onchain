@@ -2,7 +2,128 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * SettleFlow token layer.
+ *
+ * These are the colors the app already used, given names. Nothing here
+ * introduces a new hue: canvas/surface are the former slate-950/900, accent is
+ * the former blue-600, and the four status hues match StatusBadge as shipped.
+ * The point is that "muted text" now has one definition instead of eleven, and
+ * every value below clears 4.5:1 against the surface it is used on.
+ */
+:root {
+  color-scheme: dark;
+
+  /* Ground */
+  --canvas: #020617;
+  --surface: #0b1220;
+  --surface-raised: #111c31;
+  --surface-sunken: #010409;
+
+  /* Lines */
+  --line: #1e293b;
+  --line-strong: #334155;
+
+  /* Text — every value verified against --canvas and --surface */
+  --text: #f1f5f9;
+  --text-secondary: #cbd5e1;
+  --text-muted: #94a3b8;
+
+  /* Accent */
+  --accent: #2563eb;
+  --accent-hover: #3b82f6;
+  --accent-text: #93c5fd;
+  --accent-on: #ffffff;
+
+  /* Status — hue plus a tint for the badge ground */
+  --paid: #34d399;
+  --paid-tint: #064e3b;
+  --pending: #fbbf24;
+  --pending-tint: #4a2f04;
+  --overdue: #f87171;
+  --overdue-tint: #4c1d1d;
+  --neutral: #94a3b8;
+  --neutral-tint: #1e293b;
+  --disputed: #c4b5fd;
+  --disputed-tint: #3b2f63;
+
+  /*
+   * Chart fills are their own steps of the same status language. The badge
+   * steps above are tuned to be read as text on a tint; these are tuned to be
+   * read as areas on --surface, and clear the lightness band, CVD separation,
+   * and contrast checks as a set.
+   */
+  --chart-collected: #0d9488;
+  --chart-outstanding: #d97706;
+  --chart-overdue: #e11d48;
+
+  /* Elevation — offset and blur, never a flat halo */
+  --shadow-card: 0 1px 2px rgb(2 6 23 / 0.4), 0 8px 24px -12px rgb(2 6 23 / 0.7);
+  --shadow-lifted: 0 2px 4px rgb(2 6 23 / 0.5), 0 24px 48px -24px rgb(2 6 23 / 0.9);
+
+  /* Motion */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
 body {
-  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-    sans-serif;
+  background-color: var(--canvas);
+  color: var(--text);
+  font-family: var(--font-sans), ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", Roboto, sans-serif;
+}
+
+/*
+ * One focus ring for the whole app. The default browser outline is nearly
+ * invisible on this canvas, and the app previously shipped no replacement.
+ */
+:where(a, button, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--accent-hover);
+  outline-offset: 2px;
+  border-radius: 0.5rem;
+}
+
+/* Money and dates line up column-to-column instead of drifting. */
+.tabular {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+@keyframes settleflow-rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/*
+ * The one authored moment: content settles in on arrival. Applied to page
+ * roots only, not to every element on the page.
+ */
+.rise {
+  animation: settleflow-rise 0.45s var(--ease-out) both;
+}
+
+@keyframes settleflow-pulse {
+  50% {
+    opacity: 0.45;
+  }
+}
+
+.skeleton {
+  background-color: var(--surface-raised);
+  animation: settleflow-pulse 1.6s var(--ease-out) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

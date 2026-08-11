@@ -1,12 +1,24 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { CircleCheck, Sparkles, TriangleAlert } from "lucide-react";
+import { Alert, Button, Card, CardTitle, Field, PageHeader, inputStyles } from "@/components/ui";
 import { api, type Customer, type ParsedCommand } from "@/lib/api";
-import { formatCurrency, formatDate } from "@/lib/utils";
+import { cn, formatCurrency, formatDate } from "@/lib/utils";
 
-const DEMO_COMMAND =
-  "Collect 100 USDC from Daniel Tan for the website redesign, due in 7 days.";
+const DEMO_COMMAND = "Collect 100 USDC from Daniel Tan for the website redesign, due in 7 days.";
+
+function Detail({ label, value, muted }: { label: string; value: string; muted?: boolean }) {
+  return (
+    <div>
+      <dt className="text-xs uppercase tracking-wide text-content-muted">{label}</dt>
+      <dd className={cn("mt-0.5 text-sm", muted ? "text-content-muted" : "text-content")}>
+        {value}
+      </dd>
+    </div>
+  );
+}
 
 export default function NewInvoicePage() {
   const router = useRouter();
@@ -17,6 +29,10 @@ export default function NewInvoicePage() {
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const redirectRef = useRef<ReturnType<typeof setTimeout>>();
+
+  // The success path navigates on a timer; clear it if the user leaves first.
+  useEffect(() => () => clearTimeout(redirectRef.current), []);
 
   async function handleParse() {
     setLoading(true);
@@ -33,11 +49,8 @@ export default function NewInvoicePage() {
           c.name.toLowerCase().includes(result.customer_name.toLowerCase())
       );
       setCustomer(match || null);
-      if (!match) {
-        setError(`No customer match for "${result.customer_name}". Add them first or check spelling.`);
-      }
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Parse failed");
+      setError(e instanceof Error ? e.message : "Couldn't parse that command. Try rephrasing it.");
     } finally {
       setLoading(false);
     }
@@ -56,95 +69,121 @@ export default function NewInvoicePage() {
         due_date: parsed.due_date,
       });
       await api.sendInvoice(invoice.id);
-      setSuccess(`Invoice ${invoice.invoice_number} created and email preview generated.`);
-      setTimeout(() => router.push(`/invoices/${invoice.id}`), 1200);
+      setSuccess(`${invoice.invoice_number} created. Opening it now…`);
+      redirectRef.current = setTimeout(() => router.push(`/invoices/${invoice.id}`), 1200);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Create failed");
-    } finally {
+      setError(e instanceof Error ? e.message : "Couldn't create the invoice.");
       setCreating(false);
     }
   }
 
-  return (
-    <div className="mx-auto max-w-2xl space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold text-white">Collect payment</h1>
-        <p className="mt-1 text-slate-400">
-          Describe the invoice in plain English. SettleFlow extracts the details.
-        </p>
-      </div>
+  const lowConfidence = parsed !== null && parsed.confidence < 0.7;
 
-      <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-6 space-y-4">
-        <label className="block text-sm font-medium text-slate-300">Natural language command</label>
-        <textarea
-          value={command}
-          onChange={(e) => setCommand(e.target.value)}
-          rows={3}
-          className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white placeholder:text-slate-500"
-        />
-        <button
-          onClick={handleParse}
-          disabled={loading || !command.trim()}
-          className="rounded-lg bg-slate-700 px-4 py-2 text-sm font-medium text-white hover:bg-slate-600 disabled:opacity-50"
+  return (
+    <div className="rise mx-auto max-w-2xl space-y-6">
+      <PageHeader
+        title="Collect payment"
+        description="Describe the invoice in plain English. SettleFlow extracts the details for you to confirm."
+      />
+
+      <Card className="space-y-4 p-6">
+        <Field
+          label="What are you invoicing for?"
+          htmlFor="command"
+          hint="Include the customer, amount, currency, what the work was, and when it's due."
         >
-          {loading ? "Parsing..." : "Parse command"}
-        </button>
-      </div>
+          <textarea
+            id="command"
+            value={command}
+            onChange={(e) => setCommand(e.target.value)}
+            rows={3}
+            className={cn(inputStyles, "resize-y")}
+          />
+        </Field>
+
+        <div className="flex flex-wrap items-center gap-3">
+          <Button onClick={handleParse} loading={loading} disabled={!command.trim()}>
+            {loading ? "Reading…" : "Parse command"}
+          </Button>
+          {command !== DEMO_COMMAND && (
+            <Button variant="quiet" size="sm" onClick={() => setCommand(DEMO_COMMAND)}>
+              Use the example
+            </Button>
+          )}
+        </div>
+
+        {/*
+         * States the boundary plainly: the parser reads text and stops there.
+         * Nothing here can move money or contact anyone.
+         */}
+        <p className="flex items-start gap-2 border-t border-line pt-4 text-xs text-content-muted">
+          <Sparkles aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          Parsing only reads your text into fields. Nothing is sent and no payment is requested
+          until you create the invoice.
+        </p>
+      </Card>
 
       {parsed && (
-        <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-6 space-y-4">
-          <h2 className="text-lg font-medium text-white">Extracted invoice</h2>
-          <dl className="grid gap-3 text-sm sm:grid-cols-2">
-            <div>
-              <dt className="text-slate-500">Customer</dt>
-              <dd className="text-white">{parsed.customer_name}</dd>
-            </div>
-            <div>
-              <dt className="text-slate-500">Amount</dt>
-              <dd className="text-white">{formatCurrency(parsed.amount, parsed.currency)}</dd>
-            </div>
-            <div>
-              <dt className="text-slate-500">Description</dt>
-              <dd className="text-white">{parsed.description}</dd>
-            </div>
-            <div>
-              <dt className="text-slate-500">Due date</dt>
-              <dd className="text-white">{formatDate(parsed.due_date)}</dd>
-            </div>
-            <div>
-              <dt className="text-slate-500">Confidence</dt>
-              <dd className="text-white">{(parsed.confidence * 100).toFixed(0)}%</dd>
-            </div>
+        <Card className="space-y-5 p-6">
+          <div className="flex items-center justify-between gap-4">
+            <CardTitle>Confirm the details</CardTitle>
+            <span
+              className={cn(
+                "tabular text-xs",
+                lowConfidence ? "text-pending" : "text-content-muted"
+              )}
+            >
+              {(parsed.confidence * 100).toFixed(0)}% confident
+            </span>
+          </div>
+
+          <dl className="grid gap-4 sm:grid-cols-2">
+            <Detail label="Customer" value={parsed.customer_name} />
+            <Detail label="Amount" value={formatCurrency(parsed.amount, parsed.currency)} />
+            <Detail label="Description" value={parsed.description} />
+            <Detail label="Due date" value={formatDate(parsed.due_date)} />
           </dl>
 
+          {parsed.missing_fields.length > 0 && (
+            <Alert tone="warning" title="Some details were guessed">
+              Couldn&rsquo;t find {parsed.missing_fields.join(", ")} in your command. Check the
+              values above before creating.
+            </Alert>
+          )}
+
+          {lowConfidence && parsed.missing_fields.length === 0 && (
+            <Alert tone="warning">
+              Low confidence in this reading. Double-check the amount and due date.
+            </Alert>
+          )}
+
           {customer ? (
-            <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm text-emerald-200">
-              Matched customer: {customer.name} ({customer.email}) — {customer.company}
+            <div className="flex items-start gap-2.5 rounded-lg border border-paid/40 bg-paid-tint/60 p-3 text-sm text-paid">
+              <CircleCheck aria-hidden className="mt-0.5 h-4 w-4 shrink-0" />
+              <span>
+                Matched <span className="font-medium">{customer.name}</span>
+                {customer.company && ` · ${customer.company}`}
+                <span className="block opacity-90">{customer.email}</span>
+              </span>
             </div>
           ) : (
-            <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-200">
-              No customer match found.
+            <div className="flex items-start gap-2.5 rounded-lg border border-pending/40 bg-pending-tint/60 p-3 text-sm text-pending">
+              <TriangleAlert aria-hidden className="mt-0.5 h-4 w-4 shrink-0" />
+              <span>
+                No customer matches &ldquo;{parsed.customer_name}&rdquo;. Add them to your
+                directory or check the spelling, then parse again.
+              </span>
             </div>
           )}
 
-          <button
-            onClick={handleCreate}
-            disabled={creating || !customer}
-            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-500 disabled:opacity-50"
-          >
-            {creating ? "Creating..." : "Create invoice"}
-          </button>
-        </div>
+          <Button onClick={handleCreate} loading={creating} disabled={!customer || !!success}>
+            {creating ? "Creating…" : "Create invoice"}
+          </Button>
+        </Card>
       )}
 
-      {error && (
-        <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-200">{error}</div>
-      )}
-      {success && (
-        <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-4 text-sm text-emerald-200">
-          {success}
-        </div>
-      )}
+      {error && <Alert tone="error">{error}</Alert>}
+      {success && <Alert tone="success">{success}</Alert>}
     </div>
   );
 }
