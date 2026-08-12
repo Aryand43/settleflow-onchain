@@ -103,6 +103,20 @@ def create_invoice(db: Session, data: InvoiceCreate) -> Invoice:
         message=f"Invoice {invoice_number} created for {data.amount} {data.currency.upper()}",
         metadata={"invoice_number": invoice_number},
     )
+
+    from app.services.blockchain import chain_ready, register_payment_request
+
+    if chain_ready(settings):
+        try:
+            register_payment_request(invoice)
+        except Exception as exc:
+            log_activity(
+                db,
+                invoice_id=invoice.id,
+                event_type=EventType.payment_failed.value,
+                message=f"On-chain registration failed for {invoice_number}: {exc}",
+            )
+
     return invoice
 
 
@@ -133,15 +147,25 @@ def mark_paid(db: Session, invoice: Invoice, tx_hash: str, simulated: bool = Fal
     return invoice
 
 
-def mark_overdue(db: Session, invoice: Invoice) -> Invoice:
-    invoice.status = InvoiceStatus.overdue.value
-    invoice.due_date = date.today() - timedelta(days=1)
+def mark_overdue(db: Session, invoice: Invoice, additional_days: int = 1) -> Invoice:
+    was_already_overdue = invoice.status == InvoiceStatus.overdue.value
+
+    if was_already_overdue:
+        # Already overdue: push further into the past so the demo can walk
+        # through the collections agent's escalation tiers on repeat clicks.
+        invoice.due_date = invoice.due_date - timedelta(days=additional_days)
+    else:
+        invoice.status = InvoiceStatus.overdue.value
+        invoice.due_date = date.today() - timedelta(days=1)
+
     db.commit()
     db.refresh(invoice)
-    log_activity(
-        db,
-        invoice_id=invoice.id,
-        event_type=EventType.invoice_overdue.value,
-        message=f"Invoice {invoice.invoice_number} marked overdue",
-    )
+
+    if not was_already_overdue:
+        log_activity(
+            db,
+            invoice_id=invoice.id,
+            event_type=EventType.invoice_overdue.value,
+            message=f"Invoice {invoice.invoice_number} marked overdue",
+        )
     return invoice

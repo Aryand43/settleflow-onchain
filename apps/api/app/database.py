@@ -23,6 +23,6 @@ def get_db():
 
 
 def init_db() -> None:
-    from app.models import activity, customer, invoice  # noqa: F401
+    from app.models import activity, customer, invoice, negotiation  # noqa: F401
 
     Base.metadata.create_all(bind=engine)

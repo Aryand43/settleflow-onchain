@@ -18,6 +18,7 @@ apps/web/.env.local
 contracts/out/
 contracts/cache/
 contracts/lib/
+contracts/broadcast/
 
 # IDE
 .DS_Store
@@ -28,3 +29,10 @@ contracts/lib/
 *.egg-info/
 .pytest_cache/
 htmlcov/
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS
+Thumbs.db

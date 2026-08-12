@@ -8,17 +8,22 @@ from app.database import get_db
 from app.deps import verify_api_key
 from app.models.activity import ActivityEvent
 from app.models.invoice import Invoice, InvoiceStatus
+from app.models.negotiation import NegotiationMessage
 from app.repositories.customer import get_customer_repository
 from app.schemas import (
     DashboardSummary,
     InvoiceCreate,
     InvoiceResponse,
+    NegotiationMessageCreate,
+    NegotiationMessageResponse,
     ParseCommandRequest,
     ParsedCommand,
     PaymentPageResponse,
 )
+from app.services.blockchain import chain_ready, pay_invoice_onchain, scan_blockchain_events
 from app.services.email import get_email_service
 from app.services.invoice import create_invoice, invoice_to_response, mark_overdue, mark_paid
+from app.services.negotiation import handle_customer_message
 from app.services.parser import parse_command
 from app.services.reminders import process_overdue_after_simulate, send_reminder
 
@@ -75,6 +80,31 @@ def payment_page_by_token(payment_token: str, db: Session = Depends(get_db)):
         demo_mode=settings.demo_mode,
         chain_configured=bool(settings.rpc_url and settings.payment_contract_address),
     )
+
+
+@router.get("/by-token/{payment_token}/messages", response_model=list[NegotiationMessageResponse])
+def payment_page_messages(payment_token: str, db: Session = Depends(get_db)):
+    invoice = db.query(Invoice).filter(Invoice.payment_token == payment_token).first()
+    if not invoice:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    return (
+        db.query(NegotiationMessage)
+        .filter(NegotiationMessage.invoice_id == invoice.id)
+        .order_by(NegotiationMessage.created_at)
+        .all()
+    )
+
+
+@router.post("/by-token/{payment_token}/messages")
+def send_payment_page_message(
+    payment_token: str, body: NegotiationMessageCreate, db: Session = Depends(get_db)
+):
+    invoice = db.query(Invoice).filter(Invoice.payment_token == payment_token).first()
+    if not invoice:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    if not body.message.strip():
+        raise HTTPException(status_code=400, detail="Message cannot be empty")
+    return handle_customer_message(db, invoice, body.message.strip())
 
 
 @router.get("/{invoice_id}", response_model=InvoiceResponse, dependencies=[Depends(verify_api_key)])
@@ -167,15 +197,22 @@ def simulate_payment(invoice_id: int, db: Session = Depends(get_db)):
     if invoice.status == InvoiceStatus.paid.value:
         return {"message": "Already paid", "invoice": invoice_to_response(invoice)}
 
-    fake_hash = f"0x{'a' * 64}"
-    mark_paid(db, invoice, fake_hash, simulated=True)
+    if chain_ready(settings) and settings.demo_payer_private_key and invoice.on_chain_invoice_id:
+        # Real chain configured (Anvil devnet by default): pay for real and let
+        # the scan pick up the InvoicePaid event, same as production would.
+        pay_invoice_onchain(invoice)
+        scan_blockchain_events(db)
+    else:
+        fake_hash = f"0x{'a' * 64}"
+        mark_paid(db, invoice, fake_hash, simulated=True)
+
     db.refresh(invoice)
     invoice = db.query(Invoice).options(joinedload(Invoice.customer)).filter(Invoice.id == invoice_id).one()
     return {"message": "Payment simulated", "invoice": invoice_to_response(invoice)}
 
 
 @router.post("/{invoice_id}/simulate-time", dependencies=[Depends(verify_api_key)])
-def simulate_time(invoice_id: int, db: Session = Depends(get_db)):
+def simulate_time(invoice_id: int, days: int = 3, db: Session = Depends(get_db)):
     invoice = (
         db.query(Invoice)
         .options(joinedload(Invoice.customer))
@@ -187,7 +224,7 @@ def simulate_time(invoice_id: int, db: Session = Depends(get_db)):
     if invoice.status == InvoiceStatus.paid.value:
         raise HTTPException(status_code=400, detail="Cannot simulate time on paid invoice")
 
-    mark_overdue(db, invoice)
+    mark_overdue(db, invoice, additional_days=days)
     process_overdue_after_simulate(db, invoice)
     db.refresh(invoice)
     invoice = db.query(Invoice).options(joinedload(Invoice.customer)).filter(Invoice.id == invoice_id).one()
@@ -209,6 +246,20 @@ def send_reminder_endpoint(invoice_id: int, db: Session = Depends(get_db)):
     db.refresh(invoice)
     invoice = db.query(Invoice).options(joinedload(Invoice.customer)).filter(Invoice.id == invoice_id).one()
     return {"message": "Reminder sent", "invoice": invoice_to_response(invoice)}
+
+
+@router.get(
+    "/{invoice_id}/messages",
+    response_model=list[NegotiationMessageResponse],
+    dependencies=[Depends(verify_api_key)],
+)
+def invoice_messages(invoice_id: int, db: Session = Depends(get_db)):
+    return (
+        db.query(NegotiationMessage)
+        .filter(NegotiationMessage.invoice_id == invoice_id)
+        .order_by(NegotiationMessage.created_at)
+        .all()
+    )
 
 
 @router.get("/{invoice_id}/activity", dependencies=[Depends(verify_api_key)])

@@ -2,11 +2,17 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { ArrowRight, Inbox, WifiOff } from "lucide-react";
+import { ArrowRight, Inbox, Sparkles, WifiOff } from "lucide-react";
 import { CollectionChart } from "@/components/CollectionChart";
 import { Alert, Button, Card, CardTitle, PageHeader, Skeleton } from "@/components/ui";
-import { api, type ActivityEvent, type DashboardSummary } from "@/lib/api";
+import { api, type ActivityEvent, type CollectionsAgentResult, type DashboardSummary } from "@/lib/api";
 import { cn, formatCurrency, formatDateTime } from "@/lib/utils";
+
+const TIER_LABEL: Record<string, string> = {
+  friendly: "Friendly nudge",
+  firm: "Firm follow-up",
+  final: "Final notice",
+};
 
 const DEMO_COMMAND = "Collect 100 USDC from Daniel Tan for the website redesign, due in 7 days.";
 
@@ -68,6 +74,8 @@ export default function OverviewPage() {
   const [activity, setActivity] = useState<ActivityEvent[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [agentRunning, setAgentRunning] = useState(false);
+  const [agentResult, setAgentResult] = useState<CollectionsAgentResult | null>(null);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -82,6 +90,18 @@ export default function OverviewPage() {
   }, []);
 
   useEffect(load, [load]);
+
+  const runAgent = useCallback(() => {
+    setAgentRunning(true);
+    api
+      .runCollectionsAgent()
+      .then((result) => {
+        setAgentResult(result);
+        load();
+      })
+      .catch((e: unknown) => setError(e instanceof Error ? e.message : "Request failed"))
+      .finally(() => setAgentRunning(false));
+  }, [load]);
 
   if (loading) return <DashboardSkeleton />;
 
@@ -143,10 +163,42 @@ export default function OverviewPage() {
 
       {hasOverdue && (
         <Alert tone="warning" title={`${summary.overdue_count} invoice(s) past due`}>
-          <Link href="/invoices" className="underline underline-offset-2">
-            Review overdue invoices
-          </Link>{" "}
-          to send a reminder.
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p>
+              <Link href="/invoices" className="underline underline-offset-2">
+                Review overdue invoices
+              </Link>
+              , or let the collections agent draft reminders automatically.
+            </p>
+            <Button variant="demo" size="sm" loading={agentRunning} onClick={runAgent}>
+              <Sparkles aria-hidden className="h-3.5 w-3.5" />
+              Run collections agent
+            </Button>
+          </div>
+        </Alert>
+      )}
+
+      {agentResult && (
+        <Alert tone={agentResult.reminders_sent.length > 0 ? "success" : "info"}>
+          {agentResult.reminders_sent.length === 0 ? (
+            <p>
+              Reviewed {agentResult.invoices_reviewed} overdue invoice(s) — every one already has a
+              reminder out at its current tier.
+            </p>
+          ) : (
+            <div>
+              <p className="font-medium">
+                Sent {agentResult.reminders_sent.length} reminder(s) automatically:
+              </p>
+              <ul className="mt-2 space-y-1">
+                {agentResult.reminders_sent.map((r) => (
+                  <li key={r.invoice_id} className="tabular">
+                    {r.invoice_number} — {TIER_LABEL[r.tier] ?? r.tier} ({r.days_overdue}d overdue)
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </Alert>
       )}
 

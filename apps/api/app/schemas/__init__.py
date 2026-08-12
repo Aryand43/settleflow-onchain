@@ -96,6 +96,20 @@ class ActivityEventResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class NegotiationMessageCreate(BaseModel):
+    message: str
+
+
+class NegotiationMessageResponse(BaseModel):
+    id: int
+    invoice_id: int
+    sender: str
+    message: str
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
 class DashboardSummary(BaseModel):
     total_collected: float
     total_outstanding: float

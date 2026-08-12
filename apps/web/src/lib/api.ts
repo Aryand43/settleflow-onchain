@@ -62,6 +62,30 @@ export type ActivityEvent = {
   created_at: string;
 };
 
+export type NegotiationMessage = {
+  id: number;
+  invoice_id: number;
+  sender: "customer" | "agent";
+  message: string;
+  created_at: string;
+};
+
+export type NegotiationReply = {
+  intent: "extension" | "installment" | "generic";
+  auto_granted: boolean;
+  reply: string;
+};
+
+export type CollectionsAgentResult = {
+  invoices_reviewed: number;
+  reminders_sent: {
+    invoice_id: number;
+    invoice_number: string;
+    tier: "friendly" | "firm" | "final";
+    days_overdue: number;
+  }[];
+};
+
 export type PaymentPage = {
   merchant_name: string;
   invoice_number: string;
@@ -133,4 +157,16 @@ export const api = {
     }),
   paymentPage: (token: string) =>
     apiFetch<PaymentPage>(`/api/invoices/by-token/${token}/payment-page`, {}, false),
+  runCollectionsAgent: () =>
+    apiFetch<CollectionsAgentResult>("/api/agent/run-collections", { method: "POST" }),
+  paymentPageMessages: (token: string) =>
+    apiFetch<NegotiationMessage[]>(`/api/invoices/by-token/${token}/messages`, {}, false),
+  sendPaymentPageMessage: (token: string, message: string) =>
+    apiFetch<NegotiationReply>(
+      `/api/invoices/by-token/${token}/messages`,
+      { method: "POST", body: JSON.stringify({ message }) },
+      false
+    ),
+  invoiceMessages: (id: number) =>
+    apiFetch<NegotiationMessage[]>(`/api/invoices/${id}/messages`),
 };

@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     payment_contract_address: Optional[str] = None
     usdc_contract_address: Optional[str] = None
     merchant_private_key: Optional[str] = None
+    demo_payer_private_key: Optional[str] = None
 
 
 @lru_cache

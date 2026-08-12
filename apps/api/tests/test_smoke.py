@@ -9,6 +9,28 @@ from app.config import get_settings
 
 
 @pytest.fixture(autouse=True)
+def no_live_chain(monkeypatch):
+    # Smoke tests reset the DB (and therefore invoice numbering) on every
+    # test, so on-chain invoice IDs would collide across runs against a real,
+    # persistent chain. Force the demo fallback path instead of hitting
+    # whatever chain happens to be configured in .env for local dev.
+    # pydantic-settings reads .env directly, so an unset process env var
+    # doesn't hide a value already present in the file — set them to an
+    # explicit empty string instead, which does take precedence.
+    for var in (
+        "RPC_URL",
+        "PAYMENT_CONTRACT_ADDRESS",
+        "USDC_CONTRACT_ADDRESS",
+        "MERCHANT_PRIVATE_KEY",
+        "DEMO_PAYER_PRIVATE_KEY",
+    ):
+        monkeypatch.setenv(var, "")
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
+
+
+@pytest.fixture(autouse=True)
 def setup_db():
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)

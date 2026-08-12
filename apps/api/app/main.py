@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.database import init_db
-from app.routers import blockchain, customers, dashboard, health, invoices
+from app.routers import agent, blockchain, customers, dashboard, health, invoices
 
 app = FastAPI(title="SettleFlow API", version="0.1.0")
 
@@ -19,6 +19,7 @@ app.include_router(customers.router, prefix="/api")
 app.include_router(invoices.router, prefix="/api")
 app.include_router(dashboard.router, prefix="/api")
 app.include_router(blockchain.router, prefix="/api")
+app.include_router(agent.router, prefix="/api")
 
 
 @app.on_event("startup")

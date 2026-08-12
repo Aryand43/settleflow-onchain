@@ -2,16 +2,19 @@
 
 import { useEffect, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
-import { CircleCheck, Clock, Loader2, TriangleAlert } from "lucide-react";
+import { CircleCheck, Clock, Loader2, MessageCircle, TriangleAlert } from "lucide-react";
 import { StatusBadge } from "@/components/StatusBadge";
-import { CopyButton } from "@/components/ui";
-import { api, type PaymentPage } from "@/lib/api";
-import { daysUntil, formatCurrency, formatDate } from "@/lib/utils";
+import { Button, CopyButton, inputStyles } from "@/components/ui";
+import { api, type NegotiationMessage, type PaymentPage } from "@/lib/api";
+import { cn, daysUntil, formatCurrency, formatDate } from "@/lib/utils";
 
 export default function PayPage({ params }: { params: { token: string } }) {
   const [data, setData] = useState<PaymentPage | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [messages, setMessages] = useState<NegotiationMessage[]>([]);
+  const [draft, setDraft] = useState("");
+  const [sending, setSending] = useState(false);
 
   useEffect(() => {
     api
@@ -19,7 +22,28 @@ export default function PayPage({ params }: { params: { token: string } }) {
       .then(setData)
       .catch((e: unknown) => setError(e instanceof Error ? e.message : "Request failed"))
       .finally(() => setLoading(false));
+    api
+      .paymentPageMessages(params.token)
+      .then(setMessages)
+      .catch(() => {});
   }, [params.token]);
+
+  async function handleSend() {
+    if (!draft.trim()) return;
+    setSending(true);
+    try {
+      await api.sendPaymentPageMessage(params.token, draft.trim());
+      setDraft("");
+      const updated = await api.paymentPageMessages(params.token);
+      setMessages(updated);
+      const refreshed = await api.paymentPage(params.token);
+      setData(refreshed);
+    } catch {
+      // Best-effort: leave the draft in place so the customer can retry.
+    } finally {
+      setSending(false);
+    }
+  }
 
   if (loading) {
     return (
@@ -145,6 +169,52 @@ export default function PayPage({ params }: { params: { token: string } }) {
               </>
             )}
           </div>
+
+          {!paid && !closed && (
+            <div className="border-t border-line px-6 py-6 sm:px-7">
+              <p className="flex items-center gap-2 text-sm font-medium text-content">
+                <MessageCircle aria-hidden className="h-4 w-4 text-content-muted" />
+                Need more time or want to arrange a payment plan?
+              </p>
+              <p className="mt-1 text-xs text-content-muted">
+                A short note here goes straight to SettleFlow's collections agent, not a person &mdash;
+                it can grant a short extension itself, or flag anything bigger for the merchant.
+              </p>
+
+              {messages.length > 0 && (
+                <ul className="mt-4 space-y-2.5">
+                  {messages.map((m) => (
+                    <li
+                      key={m.id}
+                      className={cn(
+                        "max-w-[85%] rounded-lg px-3 py-2 text-sm",
+                        m.sender === "customer"
+                          ? "ml-auto bg-accent/10 text-content"
+                          : "bg-surface-sunken text-content-secondary"
+                      )}
+                    >
+                      {m.message}
+                    </li>
+                  ))}
+                </ul>
+              )}
+
+              <div className="mt-4 flex gap-2">
+                <input
+                  value={draft}
+                  onChange={(e) => setDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") handleSend();
+                  }}
+                  placeholder="e.g. Can I get 5 more days?"
+                  className={inputStyles}
+                />
+                <Button size="md" loading={sending} disabled={!draft.trim()} onClick={handleSend}>
+                  Send
+                </Button>
+              </div>
+            </div>
+          )}
         </div>
 
         <p className="mt-6 text-center text-xs text-content-muted">

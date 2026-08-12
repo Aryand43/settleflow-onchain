@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {Test} from "forge-std/Test.sol";
+import {Test, Vm} from "forge-std/Test.sol";
 import {InvoicePaymentRouter} from "../src/InvoicePaymentRouter.sol";
 import {MockUSDC} from "../src/MockUSDC.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -45,15 +45,18 @@ contract InvoicePaymentRouterTest is Test {
     }
 
     function testIncorrectToken() public {
+        // Uses a fresh address with no USDC allowance, since `payer` already
+        // holds leftover USDC approval from setUp() that would mask this case.
+        address wrongPayer = address(0x4);
         bytes32 id2 = keccak256("INV-0002");
         vm.prank(merchant);
         router.createPaymentRequest(id2, address(usdc), amount, expiry);
 
-        wrongToken.mint(payer, amount);
-        vm.prank(payer);
+        wrongToken.mint(wrongPayer, amount);
+        vm.prank(wrongPayer);
         wrongToken.approve(address(router), amount);
 
-        vm.prank(payer);
+        vm.prank(wrongPayer);
         vm.expectRevert();
         router.payInvoice(id2);
     }

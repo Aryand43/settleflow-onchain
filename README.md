@@ -41,6 +41,7 @@ Terminal 1 — API:
 ```bash
 cd apps/api
 source .venv/bin/activate
+export PYTHONUTF8=1   # Windows: prevents Python from misreading source files as cp1252
 uvicorn app.main:app --reload --port 8000
 ```
 
@@ -65,22 +66,21 @@ Or from repo root: `make seed` then `make dev`.
 
 ---
 
-## 90-second demo script
+## Demo script
 
-1. Open the dashboard — see collected/outstanding/overdue stats and seed invoices.
-2. Click **Collect payment**.
-3. Enter: `Collect 100 USDC from Daniel Tan for the website redesign, due in 7 days.`
-4. Click **Parse command** — fields extract automatically (regex, no API key needed).
-5. Confirm Daniel Tan matched from customer directory.
-6. Click **Create invoice** — generates INV-0004 (or next sequential), email preview saved.
-7. Open invoice detail — copy payment URL or scan QR code.
-8. Open `/pay/{token}` — customer-facing payment page with amount and due date.
-9. Click **Simulate payment** on invoice detail (DEMO_MODE).
-10. Dashboard refreshes — status **Paid**, transaction hash shown.
-11. Create or pick a pending invoice — click **Simulate time**.
-12. Status becomes **Overdue**; reminder preview generated automatically.
-13. Click **Send reminder** — HTML saved to `apps/api/email_previews/`.
-14. Show activity timeline and collection chart updating.
+Full walkthrough with talking points: [`docs/demo-script.md`](docs/demo-script.md).
+Short version:
+
+1. Create an invoice from a plain-English command — the model only parses; it
+   never sends money or marks anything paid.
+2. Open the payment link, then click **Simulate payment** — a genuine
+   blockchain transaction executes (mint → approve → `payInvoice`), and the
+   backend only flips the invoice to Paid after observing the on-chain
+   `InvoicePaid` event.
+3. Click **Simulate time** on an overdue invoice, then **Run collections
+   agent** on the dashboard — it drafts an escalating reminder (friendly →
+   firm → final notice) for every overdue invoice automatically, no manual
+   send required.
 
 ---
 
@@ -95,13 +95,15 @@ Merchant Dashboard (Next.js)
         ├── Regex/LLM parser (parse only, never executes payments)
         ├── LocalMockCustomerRepository
         ├── PreviewEmailService → email_previews/
-        ├── simulate-payment / simulate-time (DEMO_MODE)
-        └── Optional: blockchain event scan → InvoicePaymentRouter
+        ├── Collections agent (escalating reminders, never marks paid)
+        ├── simulate-payment / simulate-time (DEMO_MODE, real chain tx when configured)
+        └── Blockchain event scan → InvoicePaymentRouter (Anvil devnet by default, Base Sepolia optional)
 ```
 
 **Security boundaries:**
 - LLM only parses text; never sends email or submits transactions.
-- Frontend cannot mark invoices paid — only blockchain events or `simulate-payment` (demo).
+- Collections agent only drafts and sends reminder emails; it has no code path to mark an invoice paid or move funds.
+- Frontend cannot mark invoices paid — only an observed on-chain event flips status (`simulate-payment` triggers a real transaction in DEMO_MODE, then waits for the chain event like production would).
 - Admin routes require `X-API-Key` header.
 
 ---
@@ -122,6 +124,7 @@ Merchant Dashboard (Next.js)
 | POST | `/api/invoices/{id}/simulate-time` | API key |
 | POST | `/api/invoices/{id}/send-reminder` | API key |
 | POST | `/api/blockchain/scan` | API key |
+| POST | `/api/agent/run-collections` | API key |
 | GET | `/api/activity` | API key |
 
 ---
@@ -178,8 +181,9 @@ See [`.env.example`](.env.example). Prototype minimum:
 - Single merchant, dev API key auth only
 - Local mock customers — no Google Sheets yet
 - Email previews only — no SMTP delivery
-- Reminders via manual/simulate-time — no background scheduler
-- Blockchain scan is manual — no continuous polling
+- Collections agent runs on click, not a cron — same as `simulate-time`, it's what a scheduled job would call in production
+- Blockchain scan runs after each simulated payment, and can also be triggered manually — no continuous polling yet
+- Default chain is a local Anvil devnet, not a public testnet — same contracts, same real transactions, just not independently verifiable by a judge without running Anvil themselves; a Base Sepolia deploy is one `forge script` away (see Smart contracts section)
 - Regex parser handles demo phrasing; free-form NL needs LLM key
 - SQLite — not production-ready
 
@@ -193,9 +197,11 @@ See [`.env.example`](.env.example). Prototype minimum:
 - [x] Invoice INV-0001 sequential numbering
 - [x] Public payment page with QR code
 - [x] Email preview generation
-- [x] Simulate payment → Paid status + tx hash
-- [x] Simulate time → Overdue + reminder
-- [x] InvoicePaymentRouter contract + Foundry tests
+- [x] Invoice creation registers a real payment request on-chain
+- [x] Simulate payment → genuine on-chain transaction, status flips only after the chain event is observed
+- [x] Simulate time → Overdue, escalating multiple clicks
+- [x] Collections agent (`/api/agent/run-collections`) — auto-drafts escalating reminders (friendly → firm → final) for overdue invoices, dashboard trigger on Overview
+- [x] InvoicePaymentRouter contract + Foundry tests (7/7 passing)
 - [x] Seed data (3 customers, 3 invoices)
 - [x] Backend smoke tests
 

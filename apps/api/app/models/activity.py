@@ -18,6 +18,7 @@ class EventType(str, enum.Enum):
     reminder_sent = "reminder_sent"
     invoice_overdue = "invoice_overdue"
     payment_failed = "payment_failed"
+    due_date_extended = "due_date_extended"
 
 
 class ActivityEvent(Base):

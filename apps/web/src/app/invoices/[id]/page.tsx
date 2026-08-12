@@ -3,7 +3,15 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { QRCodeSVG } from "qrcode.react";
-import { ArrowLeft, BellRing, ExternalLink, FastForward, Send, Wallet } from "lucide-react";
+import {
+  ArrowLeft,
+  BellRing,
+  ExternalLink,
+  FastForward,
+  MessageCircle,
+  Send,
+  Wallet,
+} from "lucide-react";
 import { StatusBadge } from "@/components/StatusBadge";
 import {
   Alert,
@@ -15,8 +23,8 @@ import {
   Skeleton,
 } from "@/components/ui";
 import { explorerTxUrl } from "@/lib/contracts";
-import { api, DEMO_MODE, type ActivityEvent, type Invoice } from "@/lib/api";
-import { formatCurrency, formatDate, formatDateTime, formatDueRelative, truncateHash } from "@/lib/utils";
+import { api, DEMO_MODE, type ActivityEvent, type Invoice, type NegotiationMessage } from "@/lib/api";
+import { cn, formatCurrency, formatDate, formatDateTime, formatDueRelative, truncateHash } from "@/lib/utils";
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -31,6 +39,7 @@ export default function InvoiceDetailPage({ params }: { params: { id: string } }
   const id = Number(params.id);
   const [invoice, setInvoice] = useState<Invoice | null>(null);
   const [activity, setActivity] = useState<ActivityEvent[]>([]);
+  const [negotiation, setNegotiation] = useState<NegotiationMessage[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -38,9 +47,14 @@ export default function InvoiceDetailPage({ params }: { params: { id: string } }
 
   const load = useCallback(async () => {
     try {
-      const [inv, act] = await Promise.all([api.invoice(id), api.invoiceActivity(id)]);
+      const [inv, act, neg] = await Promise.all([
+        api.invoice(id),
+        api.invoiceActivity(id),
+        api.invoiceMessages(id),
+      ]);
       setInvoice(inv);
       setActivity(act);
+      setNegotiation(neg);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load");
     } finally {
@@ -273,6 +287,39 @@ export default function InvoiceDetailPage({ params }: { params: { id: string } }
               </p>
             )}
           </Card>
+
+          {negotiation.length > 0 && (
+            <Card className="p-6">
+              <CardTitle>
+                <span className="inline-flex items-center gap-2">
+                  <MessageCircle aria-hidden className="h-4 w-4 text-content-muted" />
+                  Negotiation
+                </span>
+              </CardTitle>
+              <p className="mt-1 text-xs text-content-muted">
+                What the customer asked for, and how the collections agent responded &mdash;
+                automatically, and only ever within its allowed bounds.
+              </p>
+              <ul className="mt-4 space-y-2.5">
+                {negotiation.map((m) => (
+                  <li
+                    key={m.id}
+                    className={cn(
+                      "max-w-[85%] rounded-lg px-3 py-2 text-sm",
+                      m.sender === "customer"
+                        ? "bg-surface-sunken text-content"
+                        : "ml-auto bg-accent/10 text-content-secondary"
+                    )}
+                  >
+                    <p>{m.message}</p>
+                    <p className="mt-1 text-[11px] uppercase tracking-wide text-content-muted">
+                      {m.sender === "customer" ? "Customer" : "Agent"}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          )}
 
           <Card className="p-6">
             <CardTitle>Activity timeline</CardTitle>

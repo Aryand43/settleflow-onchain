@@ -43,3 +43,6 @@ class Invoice(Base):
 
     customer = relationship("Customer", back_populates="invoices")
     activity_events = relationship("ActivityEvent", back_populates="invoice")
+    negotiation_messages = relationship(
+        "NegotiationMessage", back_populates="invoice", order_by="NegotiationMessage.created_at"
+    )
