@@ -1,0 +1,65 @@
+from __future__ import annotations
+
+from typing import Literal
+
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session
+
+from app.database import get_db
+from app.deps import verify_api_key
+from app.services.chat import answer_query
+from app.services.llm import LlmNotConfigured, LlmRequestError, llm_configured
+
+router = APIRouter(dependencies=[Depends(verify_api_key)])
+
+
+class ChatTurn(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str
+
+
+class ChatRequest(BaseModel):
+    message: str
+    scope: Literal["payments", "overview"]
+    history: list[ChatTurn] = Field(default_factory=list)
+
+
+class ChatResponse(BaseModel):
+    reply: str
+    scope: Literal["payments", "overview"]
+
+
+class ChatStatusResponse(BaseModel):
+    configured: bool
+
+
+@router.get("/chat/status", response_model=ChatStatusResponse)
+def chat_status():
+    return ChatStatusResponse(configured=llm_configured())
+
+
+@router.post("/chat", response_model=ChatResponse)
+async def chat(body: ChatRequest, db: Session = Depends(get_db)):
+    if not llm_configured():
+        raise HTTPException(
+            status_code=503,
+            detail="LLM_API_KEY is not set. Add it to apps/api/.env and restart the API.",
+        )
+    if not body.message.strip():
+        raise HTTPException(status_code=400, detail="Message cannot be empty")
+
+    history = [{"role": t.role, "content": t.content} for t in body.history]
+    try:
+        reply = await answer_query(
+            db, scope=body.scope, message=body.message, history=history
+        )
+    except LlmNotConfigured:
+        raise HTTPException(
+            status_code=503,
+            detail="LLM_API_KEY is not set. Add it to apps/api/.env and restart the API.",
+        )
+    except LlmRequestError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    return ChatResponse(reply=reply, scope=body.scope)

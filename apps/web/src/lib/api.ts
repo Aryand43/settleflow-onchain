@@ -86,6 +86,22 @@ export type CollectionsAgentResult = {
   }[];
 };
 
+export type ChatScope = "payments" | "overview";
+
+export type ChatTurn = {
+  role: "user" | "assistant";
+  content: string;
+};
+
+export type ChatStatus = {
+  configured: boolean;
+};
+
+export type ChatReply = {
+  reply: string;
+  scope: ChatScope;
+};
+
 export type PaymentPage = {
   merchant_name: string;
   invoice_number: string;
@@ -169,4 +185,10 @@ export const api = {
     ),
   invoiceMessages: (id: number) =>
     apiFetch<NegotiationMessage[]>(`/api/invoices/${id}/messages`),
+  chatStatus: () => apiFetch<ChatStatus>("/api/chat/status"),
+  chat: (data: { message: string; scope: ChatScope; history: ChatTurn[] }) =>
+    apiFetch<ChatReply>("/api/chat", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
 };

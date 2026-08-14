@@ -126,6 +126,8 @@ Merchant Dashboard (Next.js)
 | POST | `/api/blockchain/scan` | API key |
 | POST | `/api/agent/run-collections` | API key |
 | GET | `/api/activity` | API key |
+| GET | `/api/chat/status` | API key |
+| POST | `/api/chat` | API key |
 
 ---
 
@@ -187,6 +189,7 @@ See [`.env.example`](.env.example). Prototype minimum:
 | `DATABASE_URL` | `sqlite:///./settleflow.db` | SQLite by default, Supabase Postgres optional |
 | `NEXT_PUBLIC_API_URL` | `http://localhost:8000` | Frontend → API |
 | `NEXT_PUBLIC_DEMO_MODE` | `true` | Show demo buttons |
+| `LLM_API_KEY` | (empty) | OpenAI-compatible key for parsing + merchant chat |
 
 ---
 

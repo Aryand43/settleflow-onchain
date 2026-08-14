@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { ChevronRight, FileText, SearchX, WifiOff } from "lucide-react";
+import { ChatPanel } from "@/components/ChatPanel";
 import { StatusBadge } from "@/components/StatusBadge";
 import {
   Button,
@@ -114,6 +115,18 @@ export default function InvoicesPage() {
         description={
           invoices.length === 1 ? "1 invoice" : `${invoices.length} invoices`
         }
+      />
+
+      <ChatPanel
+        scope="payments"
+        title="Ask about payments"
+        description="Who paid, who hasn't, and whether a settlement landed on-chain."
+        inputId="payments-chat"
+        suggestions={[
+          "Which invoices are unpaid?",
+          "Did INV-0002 settle on-chain?",
+          "What's overdue for Marcus Koh?",
+        ]}
       />
 
       {invoices.length > 0 && (

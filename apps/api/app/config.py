@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     merchant_wallet: str = "0x0000000000000000000000000000000000000001"
 
     llm_api_key: Optional[str] = None
-    llm_model: str = "gpt-4o-mini"
+    llm_model: str = "gpt-4.1-mini"
     llm_base_url: str = "https://api.openai.com/v1"
 
     chain_id: Optional[int] = None

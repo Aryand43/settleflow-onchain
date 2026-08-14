@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { ArrowRight, Inbox, Sparkles, WifiOff } from "lucide-react";
 import { CollectionChart } from "@/components/CollectionChart";
+import { ChatPanel } from "@/components/ChatPanel";
 import { Alert, Button, Card, CardTitle, PageHeader, Skeleton } from "@/components/ui";
 import { api, type ActivityEvent, type CollectionsAgentResult, type DashboardSummary } from "@/lib/api";
 import { cn, formatCurrency, formatDateTime } from "@/lib/utils";
@@ -201,6 +202,18 @@ export default function OverviewPage() {
           )}
         </Alert>
       )}
+
+      <ChatPanel
+        scope="overview"
+        title="Ask about collections"
+        description="Totals, who is late, recent activity, and how SettleFlow works."
+        inputId="overview-chat"
+        suggestions={[
+          "What's my collection rate?",
+          "Who is late?",
+          "How does an invoice get marked paid?",
+        ]}
+      />
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Card className="p-6">

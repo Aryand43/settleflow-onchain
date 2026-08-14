@@ -4,10 +4,8 @@ import json
 import re
 from datetime import date, timedelta
 
-import httpx
-
-from app.config import get_settings
 from app.schemas import ParsedCommand
+from app.services.llm import LlmNotConfigured, LlmRequestError, chat_completions, llm_configured
 
 
 DEMO_PATTERN = re.compile(
@@ -55,34 +53,22 @@ def _parse_deterministic(command: str) -> ParsedCommand | None:
 
 
 async def _parse_with_llm(command: str) -> ParsedCommand | None:
-    settings = get_settings()
-    if not settings.llm_api_key:
+    if not llm_configured():
         return None
 
     system_prompt = (
         "Extract invoice fields from the user command. Return JSON only with keys: "
         "customer_name, amount, currency, description, due_date (YYYY-MM-DD), confidence, missing_fields."
     )
-    payload = {
-        "model": settings.llm_model,
-        "messages": [
+    content = await chat_completions(
+        [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": command},
         ],
-        "response_format": {"type": "json_object"},
-    }
-    headers = {"Authorization": f"Bearer {settings.llm_api_key}"}
-
-    async with httpx.AsyncClient(timeout=30) as client:
-        response = await client.post(
-            f"{settings.llm_base_url.rstrip('/')}/chat/completions",
-            headers=headers,
-            json=payload,
-        )
-        response.raise_for_status()
-        content = response.json()["choices"][0]["message"]["content"]
-        data = json.loads(content)
-        return ParsedCommand(**data)
+        response_format={"type": "json_object"},
+    )
+    data = json.loads(content)
+    return ParsedCommand(**data)
 
 
 async def parse_command(command: str) -> ParsedCommand:
@@ -94,7 +80,7 @@ async def parse_command(command: str) -> ParsedCommand:
         llm_result = await _parse_with_llm(command)
         if llm_result:
             return llm_result
-    except Exception:
+    except (LlmNotConfigured, LlmRequestError, Exception):
         pass
 
     return ParsedCommand(

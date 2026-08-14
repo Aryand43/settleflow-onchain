@@ -26,6 +26,7 @@ def no_live_chain(monkeypatch):
         "USDC_CONTRACT_ADDRESS",
         "MERCHANT_PRIVATE_KEY",
         "DEMO_PAYER_PRIVATE_KEY",
+        "LLM_API_KEY",
     ):
         monkeypatch.setenv(var, "")
     get_settings.cache_clear()
@@ -252,3 +253,24 @@ def test_simulate_time_marks_overdue(client, headers):
     activity = client.get(f"/api/invoices/{invoice_id}/activity", headers=headers)
     types = [e["event_type"] for e in activity.json()]
     assert "invoice_overdue" in types
+
+
+def test_chat_requires_api_key(client):
+    res = client.get("/api/chat/status")
+    assert res.status_code == 401
+
+
+def test_chat_status_unconfigured(client, headers):
+    res = client.get("/api/chat/status", headers=headers)
+    assert res.status_code == 200
+    assert res.json()["configured"] is False
+
+
+def test_chat_503_without_llm_key(client, headers):
+    res = client.post(
+        "/api/chat",
+        json={"message": "Who is overdue?", "scope": "overview"},
+        headers=headers,
+    )
+    assert res.status_code == 503
+    assert "LLM_API_KEY" in res.json()["detail"]
