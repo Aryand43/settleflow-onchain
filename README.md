@@ -2,9 +2,48 @@
 
 **Automated invoice collection for the global stablecoin economy.**
 
-SettleFlow is a hackathon prototype that helps Singapore-based freelancers collect cross-border invoice payments using stablecoins. Type a natural-language command, create an invoice, share a payment link, and track status on a merchant dashboard.
+SettleFlow is a hackathon prototype that helps Singapore-based freelancers collect cross-border invoice payments using stablecoins. Type a natural-language command, create an invoice, share a payment link, and track status on a merchant dashboard. Ask the overview or payments chat about live invoice data — the model answers, it never marks anything paid.
 
 > **Testnet demo only.** No real funds. `DEMO_MODE=true` by default.
+
+---
+
+## Repository layout
+
+```
+settleflow-onchain/
+├── apps/
+│   ├── api/                      FastAPI + SQLAlchemy
+│   │   ├── app/
+│   │   │   ├── main.py           App, CORS, routers
+│   │   │   ├── config.py         Settings from apps/api/.env
+│   │   │   ├── database.py       SQLite default / Postgres via DATABASE_URL
+│   │   │   ├── models/           Invoice, customer, activity, negotiation
+│   │   │   ├── routers/          health, customers, invoices, dashboard,
+│   │   │   │                     blockchain, agent, chat
+│   │   │   ├── services/         parser, invoice, blockchain, reminders,
+│   │   │   │                     email, negotiation, llm, chat
+│   │   │   ├── repositories/     Local mock customer directory
+│   │   │   └── schemas/
+│   │   ├── scripts/seed.py       3 customers, 3 invoices
+│   │   └── tests/                Smoke tests (never hit a hosted DB)
+│   └── web/                      Next.js 14 App Router
+│       └── src/
+│           ├── app/              /  /invoices  /invoices/new
+│           │                     /invoices/[id]  /pay/[token]
+│           ├── components/       AppShell, ChatPanel, StatusBadge, …
+│           └── lib/              api.ts, contracts.ts
+├── contracts/                    Foundry
+│   ├── src/                      InvoicePaymentRouter.sol, MockUSDC.sol
+│   ├── test/
+│   └── script/Deploy.s.sol
+├── docs/demo-script.md
+├── PRODUCT.md
+├── Makefile                      install / seed / dev / test
+└── .env.example                  Copy to apps/api/.env and apps/web/.env.local
+```
+
+Local secrets live in `apps/api/.env` and `apps/web/.env.local` (gitignored). Never commit `LLM_API_KEY`.
 
 ---
 
@@ -18,7 +57,7 @@ SettleFlow is a hackathon prototype that helps Singapore-based freelancers colle
 ### Setup
 
 ```bash
-git clone <repo-url> settleflow-onchain
+git clone https://github.com/Aryand43/settleflow-onchain.git
 cd settleflow-onchain
 
 # Backend
@@ -26,12 +65,13 @@ cd apps/api
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-cp ../../.env.example .env   # or use the included apps/api/.env
+cp ../../.env.example .env
+# Optional: set LLM_API_KEY in apps/api/.env for free-form parsing + chat
 
 # Frontend
 cd ../web
 npm install
-cp ../../.env.example .env.local  # or use included .env.local
+cp ../../.env.example .env.local
 ```
 
 ### Run
@@ -81,6 +121,9 @@ Short version:
    agent** on the dashboard — it drafts an escalating reminder (friendly →
    firm → final notice) for every overdue invoice automatically, no manual
    send required.
+4. On Overview, ask **What's my collection rate?** or **Who is late?** On
+   Invoices, ask **Which invoices are unpaid?** Chat is read-only: it cannot
+   mark paid or move funds. Needs `LLM_API_KEY` in `apps/api/.env`.
 
 ---
 
@@ -88,23 +131,30 @@ Short version:
 
 ```
 Merchant Dashboard (Next.js)
+  /                 Overview + collections chat
+  /invoices         List + payments chat
+  /invoices/new     NL collect-payment command
+  /invoices/[id]    Detail, QR, demo controls
+  /pay/[token]      Public payer page (no merchant shell)
         │
         ▼
    FastAPI Backend ── SQLite (default) / Supabase Postgres
         │
         ├── Regex/LLM parser (parse only, never executes payments)
+        ├── Chat (scope=overview | payments) — answers from a live DB snapshot
         ├── LocalMockCustomerRepository
         ├── PreviewEmailService → email_previews/
         ├── Collections agent (escalating reminders, never marks paid)
+        ├── Negotiation agent (capped due-date extensions on the pay page)
         ├── simulate-payment / simulate-time (DEMO_MODE, real chain tx when configured)
         └── Blockchain event scan → InvoicePaymentRouter (Anvil devnet by default, Base Sepolia optional)
 ```
 
 **Security boundaries:**
-- LLM only parses text; never sends email or submits transactions.
+- The LLM parses commands and answers read-only questions. It never sends email, never submits a transaction, and never marks an invoice paid.
 - Collections agent only drafts and sends reminder emails; it has no code path to mark an invoice paid or move funds.
 - Frontend cannot mark invoices paid — only an observed on-chain event flips status (`simulate-payment` triggers a real transaction in DEMO_MODE, then waits for the chain event like production would).
-- Admin routes require `X-API-Key` header.
+- Admin routes require `X-API-Key` header. `LLM_API_KEY` stays on the API; it is never a `NEXT_PUBLIC_*` variable.
 
 ---
 
@@ -119,6 +169,9 @@ Merchant Dashboard (Next.js)
 | POST | `/api/invoices/parse-command` | API key |
 | GET | `/api/invoices/{id}` | API key |
 | GET | `/api/invoices/by-token/{token}/payment-page` | No |
+| GET/POST | `/api/invoices/by-token/{token}/messages` | No |
+| GET | `/api/invoices/{id}/messages` | API key |
+| GET | `/api/invoices/{id}/activity` | API key |
 | POST | `/api/invoices/{id}/send` | API key |
 | POST | `/api/invoices/{id}/simulate-payment` | API key + DEMO_MODE |
 | POST | `/api/invoices/{id}/simulate-time` | API key |
@@ -127,7 +180,7 @@ Merchant Dashboard (Next.js)
 | POST | `/api/agent/run-collections` | API key |
 | GET | `/api/activity` | API key |
 | GET | `/api/chat/status` | API key |
-| POST | `/api/chat` | API key |
+| POST | `/api/chat` | API key (`scope`: `overview` or `payments`) |
 
 ---
 
@@ -190,6 +243,8 @@ See [`.env.example`](.env.example). Prototype minimum:
 | `NEXT_PUBLIC_API_URL` | `http://localhost:8000` | Frontend → API |
 | `NEXT_PUBLIC_DEMO_MODE` | `true` | Show demo buttons |
 | `LLM_API_KEY` | (empty) | OpenAI-compatible key for parsing + merchant chat |
+| `LLM_MODEL` | `gpt-4.1-mini` | Chat/completions model (fallbacks if the project blocks it) |
+| `LLM_BASE_URL` | `https://api.openai.com/v1` | OpenAI-compatible API root |
 
 ---
 
@@ -239,7 +294,8 @@ Notes:
 - Collections agent runs on click, not a cron — same as `simulate-time`, it's what a scheduled job would call in production
 - Blockchain scan runs after each simulated payment, and can also be triggered manually — no continuous polling yet
 - Default chain is a local Anvil devnet, not a public testnet — same contracts, same real transactions, just not independently verifiable by a judge without running Anvil themselves; a Base Sepolia deploy is one `forge script` away (see Smart contracts section)
-- Regex parser handles demo phrasing; free-form NL needs LLM key
+- Regex parser handles demo phrasing; free-form NL and chat need `LLM_API_KEY`
+- Chat is in-memory in the browser — refresh clears the thread; nothing is persisted
 - SQLite by default; Supabase Postgres is a `DATABASE_URL` swap away (see above)
 - No migrations — `create_all` builds the schema but never alters it
 
@@ -258,6 +314,7 @@ Notes:
 - [x] Simulate time → Overdue, escalating multiple clicks
 - [x] Collections agent (`/api/agent/run-collections`) — auto-drafts escalating reminders (friendly → firm → final) for overdue invoices, dashboard trigger on Overview
 - [x] InvoicePaymentRouter contract + Foundry tests (7/7 passing)
+- [x] Overview chat (`scope=overview`) and invoices payments chat (`scope=payments`)
 - [x] Seed data (3 customers, 3 invoices)
 - [x] Backend smoke tests
 
@@ -276,6 +333,10 @@ Notes:
 **Connection times out on Supabase** — You're likely on the direct connection (`db.<ref>.supabase.co`), which is IPv6-only on the free tier. Use the pooler host from the Session pooler tab.
 
 **Simulate payment 403** — Set `DEMO_MODE=true` in `apps/api/.env`.
+
+**Chat says add an API key** — Set `LLM_API_KEY` in `apps/api/.env` (not the frontend env) and restart uvicorn. Settings are read at process start.
+
+**Chat 502 / LLM 403** — The API host must be able to reach `LLM_BASE_URL`. Project keys sometimes block `gpt-4o-mini`; the backend falls back to `gpt-4.1-mini` and other current chat models.
 
 ---
 
