@@ -9,7 +9,14 @@ from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.models.activity import ActivityEvent, EventType
-from app.models.invoice import Invoice, InvoiceStatus
+from app.models.invoice import (
+    INVOICE_COUNTER_ID,
+    Invoice,
+    InvoiceCounter,
+    InvoiceStatus,
+    format_invoice_number,
+    parse_invoice_number,
+)
 from app.schemas import InvoiceCreate, InvoiceResponse
 
 
@@ -17,8 +24,63 @@ USDC_DECIMALS = 6
 
 
 def _next_invoice_number(db: Session) -> str:
-    count = db.query(Invoice).count()
-    return f"INV-{count + 1:04d}"
+    """Claims the next number by incrementing the counter row under a row lock,
+    held until the caller commits.
+
+    The old `count() + 1` reread the table with no lock, so two concurrent
+    creates both saw the same count and produced the same INV-xxxx — one of
+    them dying on the unique constraint, and worse, both deriving the same
+    `on_chain_invoice_id`. Deleting an invoice also made it hand out a number
+    that was already taken.
+
+    FOR UPDATE is a no-op on SQLite, which has no row locks; its single-writer
+    model covers the same ground for the demo, and the unique constraint is
+    still the backstop."""
+    counter = (
+        db.query(InvoiceCounter)
+        .filter(InvoiceCounter.id == INVOICE_COUNTER_ID)
+        .with_for_update()
+        .one_or_none()
+    )
+
+    if counter is None:
+        # The row is normally created with the table (see the after_create hook
+        # in models.invoice). This covers a database whose counter row was
+        # removed by hand.
+        counter = InvoiceCounter(id=INVOICE_COUNTER_ID, next_value=_highest_invoice_number(db) + 1)
+        db.add(counter)
+        db.flush()
+
+    value = counter.next_value
+    counter.next_value = value + 1
+    db.flush()
+    return format_invoice_number(value)
+
+
+def _highest_invoice_number(db: Session) -> int:
+    numbers = [
+        parsed
+        for parsed in (parse_invoice_number(n) for (n,) in db.query(Invoice.invoice_number).all())
+        if parsed is not None
+    ]
+    return max(numbers) if numbers else 0
+
+
+def sync_invoice_counter(db: Session) -> int:
+    """Points the counter just past the highest invoice number present.
+
+    Needed after inserting invoices with hand-written numbers (scripts/seed.py
+    does exactly that), which otherwise leaves the counter pointing at numbers
+    already on disk. Returns the value the next invoice will use."""
+    next_value = _highest_invoice_number(db) + 1
+    counter = db.query(InvoiceCounter).filter(InvoiceCounter.id == INVOICE_COUNTER_ID).one_or_none()
+    if counter is None:
+        counter = InvoiceCounter(id=INVOICE_COUNTER_ID, next_value=next_value)
+        db.add(counter)
+    else:
+        counter.next_value = max(counter.next_value, next_value)
+    db.commit()
+    return counter.next_value
 
 
 def _to_base_units(amount: float) -> int:

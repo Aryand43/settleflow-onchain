@@ -10,6 +10,7 @@ from app.database import SessionLocal, init_db
 from app.models.activity import ActivityEvent, EventType
 from app.models.customer import Customer
 from app.models.invoice import Invoice, InvoiceStatus
+from app.services.invoice import sync_invoice_counter
 
 
 def seed() -> None:
@@ -109,7 +110,16 @@ def seed() -> None:
         ]
         db.add_all(events)
         db.commit()
-        print("Seed complete: 3 customers, 3 invoices, activity events.")
+
+        # The invoice numbers above are hand-written, so the counter still
+        # points at INV-0001. Move it past them or the first invoice created
+        # through the API collides with seeded data.
+        next_value = sync_invoice_counter(db)
+
+        print(
+            f"Seed complete: 3 customers, 3 invoices, activity events. "
+            f"Next invoice number: INV-{next_value:04d}."
+        )
     finally:
         db.close()
 

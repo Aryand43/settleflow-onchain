@@ -4,7 +4,10 @@ from fastapi.testclient import TestClient
 
 from app.database import Base, engine, SessionLocal, init_db
 from app.main import app
+from app.models.activity import ActivityEvent
 from app.models.customer import Customer
+from app.models.invoice import Invoice, InvoiceStatus
+from app.services.invoice import sync_invoice_counter
 from app.config import get_settings
 
 
@@ -94,6 +97,93 @@ def test_create_invoice_sequential_number(client, headers):
     )
     assert res.status_code == 201
     assert res.json()["invoice_number"] == "INV-0001"
+
+
+def test_invoice_numbers_are_not_reused_after_delete(client, headers):
+    """The counter hands out each number once. The old count()-based scheme
+    would reissue INV-0001 here, which also meant reissuing its
+    on_chain_invoice_id — and the router rejects a duplicate invoice id."""
+    payload = {
+        "customer_id": 1,
+        "amount": 10,
+        "currency": "USDC",
+        "description": "first",
+        "due_date": str(date.today() + timedelta(days=7)),
+    }
+    first = client.post("/api/invoices", json=payload, headers=headers)
+    assert first.json()["invoice_number"] == "INV-0001"
+
+    db = SessionLocal()
+    try:
+        # Activity rows go first: Postgres enforces the foreign key, where
+        # SQLite (pragma foreign_keys off by default) would let the orphan slide.
+        invoice_id = first.json()["id"]
+        db.query(ActivityEvent).filter(ActivityEvent.invoice_id == invoice_id).delete()
+        db.query(Invoice).filter(Invoice.id == invoice_id).delete()
+        db.commit()
+    finally:
+        db.close()
+
+    second = client.post("/api/invoices", json={**payload, "description": "second"}, headers=headers)
+    assert second.json()["invoice_number"] == "INV-0002"
+    assert second.json()["on_chain_invoice_id"] != first.json()["on_chain_invoice_id"]
+
+
+def test_seeded_numbers_do_not_collide_with_api_created_ones(client, headers):
+    """Mirrors scripts/seed.py, which writes invoice numbers by hand and then
+    calls sync_invoice_counter() so the API picks up after them."""
+    db = SessionLocal()
+    try:
+        db.add(
+            Invoice(
+                invoice_number="INV-0009",
+                customer_id=1,
+                merchant_wallet="0x" + "1" * 40,
+                amount=1.0,
+                currency="USDC",
+                amount_wei_or_base_units=1_000_000,
+                description="hand-written",
+                due_date=date.today(),
+                status=InvoiceStatus.pending.value,
+                payment_token="hand-written-token",
+            )
+        )
+        db.commit()
+        assert sync_invoice_counter(db) == 10
+    finally:
+        db.close()
+
+    res = client.post(
+        "/api/invoices",
+        json={
+            "customer_id": 1,
+            "amount": 10,
+            "currency": "USDC",
+            "description": "after seed",
+            "due_date": str(date.today() + timedelta(days=7)),
+        },
+        headers=headers,
+    )
+    assert res.status_code == 201
+    assert res.json()["invoice_number"] == "INV-0010"
+
+
+def test_large_invoice_amount_survives_base_units(client, headers):
+    """5,000 USDC is 5e9 base units — past the 32-bit INTEGER ceiling that
+    Postgres (unlike SQLite) actually enforces."""
+    res = client.post(
+        "/api/invoices",
+        json={
+            "customer_id": 1,
+            "amount": 5000,
+            "currency": "USDC",
+            "description": "large",
+            "due_date": str(date.today() + timedelta(days=7)),
+        },
+        headers=headers,
+    )
+    assert res.status_code == 201
+    assert res.json()["amount_wei_or_base_units"] == 5_000_000_000
 
 
 def test_simulate_payment_demo_mode(client, headers, monkeypatch):

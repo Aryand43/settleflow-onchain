@@ -6,6 +6,7 @@ apps/api/__pycache__/
 apps/api/**/__pycache__/
 *.pyc
 apps/api/settleflow.db
+apps/api/test_settleflow.db
 apps/api/email_previews/*.html
 
 # Environment

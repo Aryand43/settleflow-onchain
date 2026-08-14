@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Any, Dict, Optional
 
 from sqlalchemy import DateTime, ForeignKey, Integer, JSON, String, Text
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -28,7 +29,11 @@ class ActivityEvent(Base):
     invoice_id: Mapped[Optional[int]] = mapped_column(ForeignKey("invoices.id"), nullable=True)
     event_type: Mapped[str] = mapped_column(String(64), nullable=False)
     message: Mapped[str] = mapped_column(Text, nullable=False)
-    metadata_json: Mapped[Optional[Dict[str, Any]]] = mapped_column("metadata", JSON, nullable=True)
+    # JSONB on Postgres so reminder tiers/rules stored in here stay queryable
+    # and indexable; plain JSON everywhere else (SQLite has no JSONB type).
+    metadata_json: Mapped[Optional[Dict[str, Any]]] = mapped_column(
+        "metadata", JSON().with_variant(JSONB(), "postgresql"), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     invoice = relationship("Invoice", back_populates="activity_events")
