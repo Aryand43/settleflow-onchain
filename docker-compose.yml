@@ -1,0 +1,117 @@
+# SettleFlow — full stack in two containers.
+#
+#   cp .env.example .env      # then fill in DATABASE_URL / secrets
+#   docker compose up --build
+#   docker compose run --rm api python scripts/seed.py
+#
+# Open http://localhost:3000 and sign in as demo@settleflow.app / settleflow.
+#
+# Local chain too (the on-chain settlement demo):
+#   docker compose --profile chain up --build
+
+services:
+  api:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      # Defaults keep `docker compose up` working with no .env at all. Anything
+      # set in .env wins.
+      DEMO_MODE: ${DEMO_MODE:-true}
+      DATABASE_URL: ${DATABASE_URL:-sqlite:////app/data/settleflow.db}
+      API_KEY: ${API_KEY:-dev-key}
+      JWT_SECRET: ${JWT_SECRET:-dev-secret-change-me}
+      # The browser resolves this, so it stays localhost even inside compose —
+      # it ends up in the payment links customers click.
+      WEB_BASE_URL: ${WEB_BASE_URL:-http://localhost:3000}
+      MERCHANT_NAME: ${MERCHANT_NAME:-SettleFlow Demo Merchant}
+      MERCHANT_WALLET: ${MERCHANT_WALLET:-0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266}
+
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-gpt-4.1-mini}
+      LLM_BASE_URL: ${LLM_BASE_URL:-https://api.openai.com/v1}
+
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_STARTTLS: ${SMTP_STARTTLS:-true}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      EMAIL_FROM: ${EMAIL_FROM:-}
+      EMAIL_FROM_NAME: ${EMAIL_FROM_NAME:-SettleFlow}
+
+      # host.docker.internal reaches an Anvil running on your Mac/Windows host.
+      # With --profile chain it's the anvil service below instead.
+      CHAIN_ID: ${CHAIN_ID:-}
+      RPC_URL: ${RPC_URL:-}
+      PAYMENT_CONTRACT_ADDRESS: ${PAYMENT_CONTRACT_ADDRESS:-}
+      USDC_CONTRACT_ADDRESS: ${USDC_CONTRACT_ADDRESS:-}
+      MERCHANT_PRIVATE_KEY: ${MERCHANT_PRIVATE_KEY:-}
+      DEMO_PAYER_PRIVATE_KEY: ${DEMO_PAYER_PRIVATE_KEY:-}
+    volumes:
+      # SQLite lives here. Irrelevant when DATABASE_URL points at Supabase, but
+      # it means the demo survives a restart either way.
+      - api-data:/app/data
+      # Bind-mounted so you can open generated reminder HTML from the host.
+      - ./apps/api/email_previews:/app/email_previews
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile
+      args:
+        # Build-time, not runtime: NEXT_PUBLIC_* is baked into the JS bundle.
+        # Change this and you must rebuild, not just restart.
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+        NEXT_PUBLIC_DEMO_MODE: ${NEXT_PUBLIC_DEMO_MODE:-true}
+    ports:
+      - "3000:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Optional: local devnet for the real-settlement demo.
+  #   docker compose --profile chain up -d anvil
+  #   docker compose --profile chain run --rm contracts
+  # then put the printed addresses in .env (RPC_URL=http://anvil:8545 — the
+  # service name, since the API reaches it over the compose network) and
+  # `docker compose up -d api`.
+  anvil:
+    profiles: ["chain"]
+    image: ghcr.io/foundry-rs/foundry:latest
+    entrypoint: ["anvil"]
+    command: ["--host", "0.0.0.0", "--chain-id", "31337"]
+    ports:
+      - "8545:8545"
+    restart: unless-stopped
+
+  # One-shot: installs the Solidity dependencies and deploys both contracts to
+  # the anvil above, printing the two addresses you need.
+  contracts:
+    profiles: ["chain"]
+    image: ghcr.io/foundry-rs/foundry:latest
+    depends_on:
+      - anvil
+    working_dir: /contracts
+    volumes:
+      - ./contracts:/contracts
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        [ -d lib/forge-std ] || forge install foundry-rs/forge-std --no-git
+        [ -d lib/openzeppelin-contracts ] || forge install OpenZeppelin/openzeppelin-contracts --no-git
+        forge script script/Deploy.s.sol \
+          --rpc-url http://anvil:8545 \
+          --private-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80 \
+          --broadcast
+    environment:
+      PRIVATE_KEY: "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+
+volumes:
+  api-data:

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import uuid
 from datetime import date, datetime, timedelta
 from typing import Any, Dict, Optional
@@ -10,22 +9,23 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.models.activity import ActivityEvent, EventType
 from app.models.invoice import (
-    INVOICE_COUNTER_ID,
     Invoice,
     InvoiceCounter,
     InvoiceStatus,
     format_invoice_number,
+    on_chain_invoice_id,
     parse_invoice_number,
 )
+from app.models.user import User
 from app.schemas import InvoiceCreate, InvoiceResponse
 
 
 USDC_DECIMALS = 6
 
 
-def _next_invoice_number(db: Session) -> str:
-    """Claims the next number by incrementing the counter row under a row lock,
-    held until the caller commits.
+def _next_invoice_number(db: Session, owner_id: int) -> str:
+    """Claims this freelancer's next number by incrementing their counter row
+    under a row lock, held until the caller commits.
 
     The old `count() + 1` reread the table with no lock, so two concurrent
     creates both saw the same count and produced the same INV-xxxx — one of
@@ -38,16 +38,17 @@ def _next_invoice_number(db: Session) -> str:
     still the backstop."""
     counter = (
         db.query(InvoiceCounter)
-        .filter(InvoiceCounter.id == INVOICE_COUNTER_ID)
+        .filter(InvoiceCounter.owner_id == owner_id)
         .with_for_update()
         .one_or_none()
     )
 
     if counter is None:
-        # The row is normally created with the table (see the after_create hook
-        # in models.invoice). This covers a database whose counter row was
-        # removed by hand.
-        counter = InvoiceCounter(id=INVOICE_COUNTER_ID, next_value=_highest_invoice_number(db) + 1)
+        # Normally created at signup. This covers a hand-edited database and
+        # any account that predates the counter table.
+        counter = InvoiceCounter(
+            owner_id=owner_id, next_value=_highest_invoice_number(db, owner_id) + 1
+        )
         db.add(counter)
         db.flush()
 
@@ -57,25 +58,27 @@ def _next_invoice_number(db: Session) -> str:
     return format_invoice_number(value)
 
 
-def _highest_invoice_number(db: Session) -> int:
+def _highest_invoice_number(db: Session, owner_id: int) -> int:
+    rows = db.query(Invoice.invoice_number).filter(Invoice.owner_id == owner_id).all()
     numbers = [
-        parsed
-        for parsed in (parse_invoice_number(n) for (n,) in db.query(Invoice.invoice_number).all())
-        if parsed is not None
+        parsed for parsed in (parse_invoice_number(n) for (n,) in rows) if parsed is not None
     ]
     return max(numbers) if numbers else 0
 
 
-def sync_invoice_counter(db: Session) -> int:
-    """Points the counter just past the highest invoice number present.
+def sync_invoice_counter(db: Session, owner_id: int) -> int:
+    """Points a freelancer's counter just past the highest number they already
+    have.
 
     Needed after inserting invoices with hand-written numbers (scripts/seed.py
     does exactly that), which otherwise leaves the counter pointing at numbers
-    already on disk. Returns the value the next invoice will use."""
-    next_value = _highest_invoice_number(db) + 1
-    counter = db.query(InvoiceCounter).filter(InvoiceCounter.id == INVOICE_COUNTER_ID).one_or_none()
+    already on disk. Returns the value their next invoice will use."""
+    next_value = _highest_invoice_number(db, owner_id) + 1
+    counter = (
+        db.query(InvoiceCounter).filter(InvoiceCounter.owner_id == owner_id).one_or_none()
+    )
     if counter is None:
-        counter = InvoiceCounter(id=INVOICE_COUNTER_ID, next_value=next_value)
+        counter = InvoiceCounter(owner_id=owner_id, next_value=next_value)
         db.add(counter)
     else:
         counter.next_value = max(counter.next_value, next_value)
@@ -85,10 +88,6 @@ def sync_invoice_counter(db: Session) -> int:
 
 def _to_base_units(amount: float) -> int:
     return int(round(amount * (10**USDC_DECIMALS)))
-
-
-def _on_chain_id(invoice_number: str) -> str:
-    return "0x" + hashlib.sha256(invoice_number.encode()).hexdigest()
 
 
 def invoice_to_response(invoice: Invoice) -> InvoiceResponse:
@@ -134,16 +133,19 @@ def log_activity(
     return event
 
 
-def create_invoice(db: Session, data: InvoiceCreate) -> Invoice:
+def create_invoice(db: Session, data: InvoiceCreate, owner: User) -> Invoice:
     settings = get_settings()
-    invoice_number = _next_invoice_number(db)
+    invoice_number = _next_invoice_number(db, owner.id)
     payment_token = str(uuid.uuid4())
     payment_url = f"{settings.web_base_url}/pay/{payment_token}"
 
     invoice = Invoice(
+        owner_id=owner.id,
         invoice_number=invoice_number,
         customer_id=data.customer_id,
-        merchant_wallet=settings.merchant_wallet,
+        # The freelancer's own payout address, not a global setting — every
+        # account gets paid to its own wallet.
+        merchant_wallet=owner.wallet_address,
         amount=data.amount,
         currency=data.currency.upper(),
         amount_wei_or_base_units=_to_base_units(data.amount),
@@ -152,7 +154,7 @@ def create_invoice(db: Session, data: InvoiceCreate) -> Invoice:
         status=InvoiceStatus.pending.value,
         payment_url=payment_url,
         payment_token=payment_token,
-        on_chain_invoice_id=_on_chain_id(invoice_number),
+        on_chain_invoice_id=on_chain_invoice_id(owner.id, invoice_number),
     )
     db.add(invoice)
     db.commit()

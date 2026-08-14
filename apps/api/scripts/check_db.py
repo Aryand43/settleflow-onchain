@@ -49,14 +49,24 @@ def main() -> int:
 
     db = SessionLocal()
     try:
-        for table in ("customers", "invoices", "activity_events", "negotiation_messages"):
+        for table in ("users", "customers", "invoices", "activity_events", "negotiation_messages"):
             if table in tables:
                 count = db.execute(text(f"SELECT count(*) FROM {table}")).scalar()
                 print(f"  {table:<22} {count} row(s)")
 
-        if "invoice_counters" in tables:
-            nxt = db.execute(text("SELECT next_value FROM invoice_counters WHERE id = 1")).scalar()
-            print(f"\nNext invoice number: INV-{nxt:04d}" if nxt else "\nCounter row missing.")
+        if "invoice_counters" in tables and "users" in tables:
+            # One counter per freelancer since accounts got their own invoice
+            # numbering, so this reports per account rather than a single row.
+            rows = db.execute(
+                text(
+                    "SELECT u.email, c.next_value FROM invoice_counters c "
+                    "JOIN users u ON u.id = c.owner_id ORDER BY u.email"
+                )
+            ).all()
+            if rows:
+                print("\nNext invoice number per account:")
+                for email, next_value in rows:
+                    print(f"  {email:<28} INV-{next_value:04d}")
     finally:
         db.close()
 

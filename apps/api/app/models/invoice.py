@@ -1,17 +1,25 @@
 from __future__ import annotations
 
 import enum
+import hashlib
 from datetime import date, datetime
 from typing import Optional
 
-from sqlalchemy import BigInteger, Date, DateTime, ForeignKey, Integer, String, Text, event, inspect, select
+from sqlalchemy import (
+    BigInteger,
+    Date,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
 
 INVOICE_NUMBER_PREFIX = "INV-"
-# Single-row table, so the counter is always addressed by this id.
-INVOICE_COUNTER_ID = 1
 
 
 class InvoiceStatus(str, enum.Enum):
@@ -27,8 +35,13 @@ class InvoiceStatus(str, enum.Enum):
 class Invoice(Base):
     __tablename__ = "invoices"
 
+    # Invoice numbers restart at INV-0001 for every freelancer, so the
+    # uniqueness that matters is per owner, not global.
+    __table_args__ = (UniqueConstraint("owner_id", "invoice_number", name="uq_invoice_owner_number"),)
+
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    invoice_number: Mapped[str] = mapped_column(String(32), unique=True, nullable=False, index=True)
+    owner_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    invoice_number: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
     customer_id: Mapped[int] = mapped_column(ForeignKey("customers.id"), nullable=False)
     merchant_wallet: Mapped[str] = mapped_column(String(42), nullable=False)
     amount: Mapped[float] = mapped_column(nullable=False)
@@ -48,6 +61,7 @@ class Invoice(Base):
     paid_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     reminder_count: Mapped[int] = mapped_column(Integer, default=0)
 
+    owner = relationship("User", back_populates="invoices")
     customer = relationship("Customer", back_populates="invoices")
     activity_events = relationship("ActivityEvent", back_populates="invoice")
     negotiation_messages = relationship(
@@ -56,14 +70,17 @@ class Invoice(Base):
 
 
 class InvoiceCounter(Base):
-    """Hands out the sequential part of INV-0001. A single row, incremented
-    under a row lock, so two concurrent invoice creations can't be handed the
-    same number — which previously also meant two identical
+    """Hands out the sequential part of INV-0001 — one row per freelancer, so
+    everyone's invoices start at 1 and nobody can infer how much business
+    anyone else is doing from their invoice numbers.
+
+    Incremented under a row lock, so two concurrent creations can't be handed
+    the same number — which would also mean two identical
     `on_chain_invoice_id`s, and the router rejects a duplicate invoice id."""
 
     __tablename__ = "invoice_counters"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    owner_id: Mapped[int] = mapped_column(ForeignKey("users.id"), primary_key=True)
     next_value: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
 
 
@@ -79,22 +96,10 @@ def format_invoice_number(value: int) -> str:
     return f"{INVOICE_NUMBER_PREFIX}{value:04d}"
 
 
-@event.listens_for(InvoiceCounter.__table__, "after_create")
-def _seed_invoice_counter(target, connection, **kw):
-    """Creates the counter row as part of the DDL that creates its table, so it
-    always exists by the time anything reads it — no get-or-create race on the
-    first invoice.
+def on_chain_invoice_id(owner_id: int, invoice_number: str) -> str:
+    """Derives the `bytes32` the router keys a payment request by.
 
-    On a database that predates this table, the counter has to start above the
-    invoice numbers already in there; on a fresh one, `invoices` doesn't exist
-    yet and it starts at 1."""
-    start = 1
-    if inspect(connection).has_table("invoices"):
-        existing = connection.execute(select(Invoice.invoice_number)).scalars().all()
-        # Parsed in Python rather than via max(): the zero padding only sorts
-        # correctly as a string below INV-9999.
-        used = [n for n in (parse_invoice_number(x) for x in existing) if n is not None]
-        if used:
-            start = max(used) + 1
-
-    connection.execute(target.insert().values(id=INVOICE_COUNTER_ID, next_value=start))
+    Salted with the owner: invoice numbers restart per freelancer, so hashing
+    the number alone would give every freelancer's INV-0001 the same on-chain
+    id, and `createPaymentRequest` reverts on a duplicate."""
+    return "0x" + hashlib.sha256(f"{owner_id}:{invoice_number}".encode()).hexdigest()

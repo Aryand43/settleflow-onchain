@@ -7,11 +7,12 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.deps import verify_api_key
+from app.deps import get_current_user
+from app.models.user import User
 from app.services.chat import answer_query
 from app.services.llm import LlmNotConfigured, LlmRequestError, llm_configured
 
-router = APIRouter(dependencies=[Depends(verify_api_key)])
+router = APIRouter()
 
 
 class ChatTurn(BaseModel):
@@ -35,12 +36,16 @@ class ChatStatusResponse(BaseModel):
 
 
 @router.get("/chat/status", response_model=ChatStatusResponse)
-def chat_status():
+def chat_status(user: User = Depends(get_current_user)):
     return ChatStatusResponse(configured=llm_configured())
 
 
 @router.post("/chat", response_model=ChatResponse)
-async def chat(body: ChatRequest, db: Session = Depends(get_db)):
+async def chat(
+    body: ChatRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
     if not llm_configured():
         raise HTTPException(
             status_code=503,
@@ -52,7 +57,7 @@ async def chat(body: ChatRequest, db: Session = Depends(get_db)):
     history = [{"role": t.role, "content": t.content} for t in body.history]
     try:
         reply = await answer_query(
-            db, scope=body.scope, message=body.message, history=history
+            db, owner_id=user.id, scope=body.scope, message=body.message, history=history
         )
     except LlmNotConfigured:
         raise HTTPException(

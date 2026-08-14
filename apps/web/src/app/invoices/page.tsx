@@ -2,20 +2,31 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { motion } from "framer-motion";
 import { ChevronRight, FileText, SearchX, WifiOff } from "lucide-react";
 import { ChatPanel } from "@/components/ChatPanel";
 import { StatusBadge } from "@/components/StatusBadge";
-import { Button, Card, EmptyState, Skeleton, inputStyles } from "@/components/ui";
+import {
+  Button,
+  Card,
+  EmptyState,
+  PageHeader,
+  Skeleton,
+  inputStyles,
+} from "@/components/ui";
 import { api, type Invoice } from "@/lib/api";
-import { staggerContainer, staggerItem } from "@/lib/motion";
+import { useRequireAuth } from "@/lib/auth";
 import { cn, daysUntil, formatCurrency, formatDate, formatDueRelative } from "@/lib/utils";
 
-const statusFilters = [
-  { value: "all", label: "All" },
+// Mirrors InvoiceStatus in the backend model, so every stored status is filterable.
+const statusOptions = [
+  { value: "all", label: "All statuses" },
   { value: "pending", label: "Pending" },
   { value: "paid", label: "Paid" },
   { value: "overdue", label: "Overdue" },
+  { value: "partially_paid", label: "Partially paid" },
+  { value: "draft", label: "Draft" },
+  { value: "disputed", label: "Disputed" },
+  { value: "cancelled", label: "Cancelled" },
 ];
 
 function DueCell({ invoice }: { invoice: Invoice }) {
@@ -35,6 +46,7 @@ function DueCell({ invoice }: { invoice: Invoice }) {
 }
 
 export default function InvoicesPage() {
+  const { user } = useRequireAuth();
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -51,7 +63,9 @@ export default function InvoicesPage() {
       .finally(() => setLoading(false));
   }, []);
 
-  useEffect(load, [load]);
+  useEffect(() => {
+    if (user) load();
+  }, [user, load]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -75,7 +89,7 @@ export default function InvoicesPage() {
             <div key={i} className="flex items-center justify-between gap-4 px-4 py-4">
               <Skeleton className="h-5 w-28" />
               <Skeleton className="h-5 w-24" />
-              <Skeleton className="h-6 w-20 rounded" />
+              <Skeleton className="h-6 w-20 rounded-full" />
             </div>
           ))}
         </Card>
@@ -100,23 +114,27 @@ export default function InvoicesPage() {
 
   return (
     <div className="rise space-y-6">
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-semibold tracking-tight text-content">Invoices</h1>
-          <p className="mt-2 max-w-xl text-sm text-content-muted">
-            The collection queue — who owes you, who is late, and what has already settled.
-          </p>
-        </div>
-        <Link
-          href="/invoices/new"
-          className="inline-flex items-center rounded bg-accent px-4 py-2 text-sm font-medium text-accent-on transition-colors duration-150 hover:bg-accent-hover"
-        >
-          Collect payment
-        </Link>
-      </div>
+      <PageHeader
+        title="Invoices"
+        description={
+          invoices.length === 1 ? "1 invoice" : `${invoices.length} invoices`
+        }
+      />
+
+      <ChatPanel
+        scope="payments"
+        title="Ask about payments"
+        description="Who paid, who hasn't, and whether a settlement landed on-chain."
+        inputId="payments-chat"
+        suggestions={[
+          "Which invoices are unpaid?",
+          "Did INV-0002 settle on-chain?",
+          "What's overdue for Marcus Koh?",
+        ]}
+      />
 
       {invoices.length > 0 && (
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+        <div className="flex flex-wrap gap-3">
           <div className="min-w-0 flex-1 sm:max-w-xs">
             <label htmlFor="invoice-search" className="sr-only">
               Search invoices
@@ -130,30 +148,22 @@ export default function InvoicesPage() {
               className={inputStyles}
             />
           </div>
-          <div
-            role="group"
-            aria-label="Filter by status"
-            className="flex flex-wrap gap-1 rounded border border-line p-1"
-          >
-            {statusFilters.map((opt) => {
-              const active = statusFilter === opt.value;
-              return (
-                <button
-                  key={opt.value}
-                  type="button"
-                  aria-pressed={active}
-                  onClick={() => setStatusFilter(opt.value)}
-                  className={cn(
-                    "rounded px-3 py-1.5 text-xs font-medium transition-colors duration-150",
-                    active
-                      ? "bg-surface-raised text-content"
-                      : "text-content-muted hover:text-content"
-                  )}
-                >
+          <div>
+            <label htmlFor="invoice-status" className="sr-only">
+              Filter by status
+            </label>
+            <select
+              id="invoice-status"
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className={cn(inputStyles, "w-auto")}
+            >
+              {statusOptions.map((opt) => (
+                <option key={opt.value} value={opt.value}>
                   {opt.label}
-                </button>
-              );
-            })}
+                </option>
+              ))}
+            </select>
           </div>
         </div>
       )}
@@ -173,6 +183,7 @@ export default function InvoicesPage() {
           }
         />
       ) : filtered.length === 0 ? (
+        /* Distinct from the empty case above: there are invoices, just none matching. */
         <EmptyState
           icon={SearchX}
           title="No matching invoices"
@@ -195,34 +206,32 @@ export default function InvoicesPage() {
         />
       ) : (
         <>
+          {/* Mobile: the six-column table used to overflow into a clipped container. */}
           <Card className="divide-y divide-line md:hidden">
-            <motion.div variants={staggerContainer} initial="hidden" animate="show">
-              {filtered.map((inv) => (
-                <motion.div key={inv.id} variants={staggerItem}>
-                  <Link
-                    href={`/invoices/${inv.id}`}
-                    className="flex items-start justify-between gap-3 px-4 py-3.5 transition-colors duration-150 hover:bg-surface-raised"
-                  >
-                    <div className="min-w-0">
-                      <p className="font-mono text-sm font-medium text-content">{inv.invoice_number}</p>
-                      <p className="truncate text-sm text-content-secondary">{inv.customer_name}</p>
-                      <p className="tabular mt-1 font-mono text-sm text-content">
-                        {formatCurrency(inv.amount, inv.currency)}
-                      </p>
-                      <p className="mt-0.5 text-xs text-content-muted">
-                        <DueCell invoice={inv} />
-                      </p>
-                    </div>
-                    <StatusBadge status={inv.status} />
-                  </Link>
-                </motion.div>
-              ))}
-            </motion.div>
+            {filtered.map((inv) => (
+              <Link
+                key={inv.id}
+                href={`/invoices/${inv.id}`}
+                className="flex items-start justify-between gap-3 px-4 py-3.5 transition-colors duration-150 hover:bg-surface-raised"
+              >
+                <div className="min-w-0">
+                  <p className="font-medium text-content">{inv.invoice_number}</p>
+                  <p className="truncate text-sm text-content-secondary">{inv.customer_name}</p>
+                  <p className="tabular mt-1 text-sm text-content">
+                    {formatCurrency(inv.amount, inv.currency)}
+                  </p>
+                  <p className="mt-0.5 text-xs text-content-muted">
+                    <DueCell invoice={inv} />
+                  </p>
+                </div>
+                <StatusBadge status={inv.status} />
+              </Link>
+            ))}
           </Card>
 
           <Card className="hidden overflow-hidden md:block">
             <table className="w-full text-left text-sm">
-              <thead className="border-b border-line bg-surface-raised text-xs text-content-muted">
+              <thead className="border-b border-line bg-surface-raised text-xs uppercase tracking-wide text-content-muted">
                 <tr>
                   <th scope="col" className="px-4 py-3 font-medium">Invoice</th>
                   <th scope="col" className="px-4 py-3 font-medium">Customer</th>
@@ -234,28 +243,19 @@ export default function InvoicesPage() {
                   </th>
                 </tr>
               </thead>
-              <motion.tbody
-                variants={staggerContainer}
-                initial="hidden"
-                animate="show"
-                className="divide-y divide-line"
-              >
+              <tbody className="divide-y divide-line">
                 {filtered.map((inv) => (
-                  <motion.tr
-                    key={inv.id}
-                    variants={staggerItem}
-                    className="group transition-colors duration-150 hover:bg-surface-raised"
-                  >
+                  <tr key={inv.id} className="group transition-colors duration-150 hover:bg-surface-raised">
                     <td className="px-4 py-3">
                       <Link
                         href={`/invoices/${inv.id}`}
-                        className="font-mono font-medium text-content hover:text-accent-text"
+                        className="font-medium text-content hover:text-accent-text"
                       >
                         {inv.invoice_number}
                       </Link>
                     </td>
                     <td className="px-4 py-3 text-content-secondary">{inv.customer_name}</td>
-                    <td className="tabular px-4 py-3 text-right font-mono text-content">
+                    <td className="tabular px-4 py-3 text-right text-content">
                       {formatCurrency(inv.amount, inv.currency)}
                     </td>
                     <td className="px-4 py-3">
@@ -267,26 +267,16 @@ export default function InvoicesPage() {
                     <td className="px-4 py-3 text-right">
                       <ChevronRight
                         aria-hidden
-                        className="h-4 w-4 text-content-muted transition-transform duration-150 group-hover:translate-x-0.5 group-hover:text-content"
+                        className="h-4 w-4 text-content-muted transition-colors duration-150 group-hover:text-content"
                       />
                     </td>
-                  </motion.tr>
+                  </tr>
                 ))}
-              </motion.tbody>
+              </tbody>
             </table>
           </Card>
         </>
       )}
-
-      <ChatPanel
-        scope="payments"
-        inputId="payments-chat"
-        suggestions={[
-          "Which invoices are unpaid?",
-          "Did INV-0002 settle on-chain?",
-          "What's overdue for Marcus Koh?",
-        ]}
-      />
     </div>
   );
 }

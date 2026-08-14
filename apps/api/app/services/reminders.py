@@ -37,7 +37,8 @@ def send_reminder(db: Session, invoice: Invoice, rule: str = "manual") -> Invoic
     days_overdue = max(0, (date.today() - invoice.due_date).days)
     tier = _reminder_tier(days_overdue)
     email_service = get_email_service()
-    path = email_service.send_reminder_email(
+    result = email_service.send_reminder_email(
+        to_email=invoice.customer.email,
         customer_name=invoice.customer.name,
         invoice_number=invoice.invoice_number,
         amount=invoice.amount,
@@ -51,12 +52,26 @@ def send_reminder(db: Session, invoice: Invoice, rule: str = "manual") -> Invoic
     db.commit()
     db.refresh(invoice)
 
+    # The timeline says what actually happened. "Sent" only appears when a mail
+    # server accepted the message; otherwise it reads as drafted, and a delivery
+    # failure is recorded rather than swallowed.
+    if result.delivered:
+        outcome = f"sent to {result.to_email}"
+    elif result.error:
+        outcome = f"FAILED to send to {result.to_email}"
+    else:
+        outcome = "drafted"
+
+    metadata = {"rule": rule, "tier": tier, **result.as_metadata()}
     log_activity(
         db,
         invoice_id=invoice.id,
         event_type=EventType.reminder_sent.value,
-        message=f"{tier.capitalize()} reminder sent for {invoice.invoice_number} ({days_overdue}d overdue)",
-        metadata={"rule": rule, "email_preview": path, "tier": tier},
+        message=(
+            f"{tier.capitalize()} reminder {outcome} for {invoice.invoice_number} "
+            f"({days_overdue}d overdue)"
+        ),
+        metadata=metadata,
     )
     return invoice
 
@@ -67,16 +82,20 @@ def process_overdue_after_simulate(db: Session, invoice: Invoice) -> None:
     send_reminder(db, invoice, rule="overdue_simulated")
 
 
-def run_collections_agent(db: Session) -> dict:
-    """The auto-chasing agent: reviews every overdue invoice and sends the
-    next-tier reminder for any that haven't received one yet at their current
-    tier. In production this is what a scheduled job calls periodically; the
-    demo triggers it on click instead of waiting on a scheduler, same as the
+def run_collections_agent(db: Session, owner_id: int) -> dict:
+    """The auto-chasing agent: reviews this freelancer's overdue invoices and
+    sends the next-tier reminder for any that haven't received one yet at their
+    current tier. In production this is what a scheduled job calls periodically;
+    the demo triggers it on click instead of waiting on a scheduler, same as the
     existing simulate-* affordances.
 
     The agent only ever drafts and sends reminder emails — it has no path to
     mark an invoice paid or move funds, same boundary as the parser."""
-    overdue_invoices = db.query(Invoice).filter(Invoice.status == InvoiceStatus.overdue.value).all()
+    overdue_invoices = (
+        db.query(Invoice)
+        .filter(Invoice.owner_id == owner_id, Invoice.status == InvoiceStatus.overdue.value)
+        .all()
+    )
 
     reviewed = 0
     sent = []
@@ -90,12 +109,20 @@ def run_collections_agent(db: Session) -> dict:
             continue
 
         send_reminder(db, invoice, rule=rule)
+        delivery = (
+            db.query(ActivityEvent)
+            .filter_by(invoice_id=invoice.id, event_type=EventType.reminder_sent.value)
+            .order_by(ActivityEvent.created_at.desc())
+            .first()
+        )
         sent.append(
             {
                 "invoice_id": invoice.id,
                 "invoice_number": invoice.invoice_number,
                 "tier": tier,
                 "days_overdue": days_overdue,
+                "to": invoice.customer.email,
+                "delivered": bool(delivery and (delivery.metadata_json or {}).get("delivered")),
             }
         )
 

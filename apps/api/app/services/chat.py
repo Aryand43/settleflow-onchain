@@ -40,10 +40,11 @@ OVERVIEW_SYSTEM = (
 MAX_HISTORY = 10
 
 
-def _payments_snapshot(db: Session) -> dict:
+def _payments_snapshot(db: Session, owner_id: int) -> dict:
     invoices = (
         db.query(Invoice)
         .options(joinedload(Invoice.customer))
+        .filter(Invoice.owner_id == owner_id)
         .order_by(Invoice.created_at.desc())
         .limit(50)
         .all()
@@ -69,8 +70,8 @@ def _payments_snapshot(db: Session) -> dict:
     }
 
 
-def _overview_snapshot(db: Session) -> dict:
-    invoices = db.query(Invoice).all()
+def _overview_snapshot(db: Session, owner_id: int) -> dict:
+    invoices = db.query(Invoice).filter(Invoice.owner_id == owner_id).all()
     paid = [i for i in invoices if i.status == InvoiceStatus.paid.value]
     pending = [i for i in invoices if i.status == InvoiceStatus.pending.value]
     overdue = [i for i in invoices if i.status == InvoiceStatus.overdue.value]
@@ -81,7 +82,12 @@ def _overview_snapshot(db: Session) -> dict:
     collection_rate = round((total_collected / total * 100) if total else 0.0, 1)
 
     events = (
-        db.query(ActivityEvent).order_by(ActivityEvent.created_at.desc()).limit(20).all()
+        db.query(ActivityEvent)
+        .join(Invoice, ActivityEvent.invoice_id == Invoice.id)
+        .filter(Invoice.owner_id == owner_id)
+        .order_by(ActivityEvent.created_at.desc())
+        .limit(20)
+        .all()
     )
     return {
         "today": date.today().isoformat(),
@@ -114,16 +120,17 @@ def _overview_snapshot(db: Session) -> dict:
 async def answer_query(
     db: Session,
     *,
+    owner_id: int,
     scope: ChatScope,
     message: str,
     history: list[dict[str, str]],
 ) -> str:
     if scope == "payments":
         system = PAYMENTS_SYSTEM
-        snapshot = _payments_snapshot(db)
+        snapshot = _payments_snapshot(db, owner_id)
     else:
         system = OVERVIEW_SYSTEM
-        snapshot = _overview_snapshot(db)
+        snapshot = _overview_snapshot(db, owner_id)
 
     messages: list[dict[str, str]] = [
         {"role": "system", "content": system},

@@ -1,6 +1,62 @@
 export const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-export const API_KEY = process.env.NEXT_PUBLIC_API_KEY || "dev-key";
 export const DEMO_MODE = process.env.NEXT_PUBLIC_DEMO_MODE === "true";
+
+/*
+ * Session token. Lives in localStorage rather than an httpOnly cookie because
+ * the API is a separate origin and this is a prototype — good enough to keep
+ * accounts apart, not good enough to be the only thing guarding real money.
+ *
+ * This replaces NEXT_PUBLIC_API_KEY, which shipped the admin key to every
+ * browser that loaded the dashboard.
+ */
+const TOKEN_KEY = "settleflow.token";
+
+export function getToken(): string | null {
+  if (typeof window === "undefined") return null;
+  return window.localStorage.getItem(TOKEN_KEY);
+}
+
+export function setToken(token: string) {
+  window.localStorage.setItem(TOKEN_KEY, token);
+}
+
+export function clearToken() {
+  window.localStorage.removeItem(TOKEN_KEY);
+}
+
+export class UnauthorizedError extends Error {
+  constructor(message = "Sign in to continue") {
+    super(message);
+    this.name = "UnauthorizedError";
+  }
+}
+
+export type User = {
+  id: number;
+  name: string;
+  email: string;
+  business_name: string | null;
+  wallet_address: string;
+  created_at: string;
+};
+
+export type AuthResponse = {
+  access_token: string;
+  token_type: string;
+  user: User;
+};
+
+export type EmailStatus = {
+  configured: boolean;
+  from_address: string | null;
+};
+
+export type CustomerImportResult = {
+  imported: number;
+  skipped: number;
+  customers: Customer[];
+  errors: string[];
+};
 
 export type Customer = {
   id: number;
@@ -123,18 +179,80 @@ async function apiFetch<T>(path: string, options: RequestInit = {}, auth = true)
     "Content-Type": "application/json",
     ...(options.headers as Record<string, string>),
   };
-  if (auth) headers["X-API-Key"] = API_KEY;
+  if (auth) {
+    const token = getToken();
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+  }
 
   const res = await fetch(`${API_URL}${path}`, { ...options, headers });
+
+  if (res.status === 401 && auth) {
+    // The token is gone or expired. Drop it so the app stops retrying with a
+    // credential the server has already rejected.
+    clearToken();
+    const err = await res.json().catch(() => ({ detail: "Session expired" }));
+    throw new UnauthorizedError(err.detail || "Session expired");
+  }
+
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));
     throw new Error(err.detail || "Request failed");
+  }
+
+  if (res.status === 204) return undefined as T;
+  return res.json();
+}
+
+async function apiUpload<T>(path: string, file: File): Promise<T> {
+  const body = new FormData();
+  body.append("file", file);
+
+  const headers: Record<string, string> = {};
+  const token = getToken();
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  // Deliberately no Content-Type — the browser sets the multipart boundary.
+
+  const res = await fetch(`${API_URL}${path}`, { method: "POST", body, headers });
+  if (res.status === 401) {
+    clearToken();
+    throw new UnauthorizedError();
+  }
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || "Upload failed");
   }
   return res.json();
 }
 
 export const api = {
   health: () => apiFetch<{ status: string }>("/api/health", {}, false),
+
+  signup: (data: {
+    name: string;
+    email: string;
+    password: string;
+    business_name?: string;
+    wallet_address?: string;
+  }) => apiFetch<AuthResponse>("/api/auth/signup", { method: "POST", body: JSON.stringify(data) }, false),
+  login: (email: string, password: string) =>
+    apiFetch<AuthResponse>(
+      "/api/auth/login",
+      { method: "POST", body: JSON.stringify({ email, password }) },
+      false
+    ),
+  me: () => apiFetch<User>("/api/auth/me"),
+
+  createCustomer: (data: {
+    name: string;
+    email: string;
+    company?: string;
+    wallet_address?: string;
+  }) => apiFetch<Customer>("/api/customers", { method: "POST", body: JSON.stringify(data) }),
+  deleteCustomer: (id: number) =>
+    apiFetch<void>(`/api/customers/${id}`, { method: "DELETE" }),
+  importCustomers: (file: File) =>
+    apiUpload<CustomerImportResult>("/api/customers/import", file),
+
   dashboard: () => apiFetch<DashboardSummary>("/api/dashboard/summary"),
   activity: () => apiFetch<ActivityEvent[]>("/api/activity"),
   customers: () => apiFetch<Customer[]>("/api/customers"),
@@ -157,8 +275,12 @@ export const api = {
       method: "POST",
       body: JSON.stringify(data),
     }),
+  emailStatus: () => apiFetch<EmailStatus>("/api/email/status"),
   sendInvoice: (id: number) =>
-    apiFetch<{ message: string; path: string }>(`/api/invoices/${id}/send`, { method: "POST" }),
+    apiFetch<{ message: string; delivered: boolean; path: string }>(
+      `/api/invoices/${id}/send`,
+      { method: "POST" }
+    ),
   simulatePayment: (id: number) =>
     apiFetch<{ message: string; invoice: Invoice }>(`/api/invoices/${id}/simulate-payment`, {
       method: "POST",
@@ -168,9 +290,10 @@ export const api = {
       method: "POST",
     }),
   sendReminder: (id: number) =>
-    apiFetch<{ message: string; invoice: Invoice }>(`/api/invoices/${id}/send-reminder`, {
-      method: "POST",
-    }),
+    apiFetch<{ message: string; delivered: boolean; invoice: Invoice }>(
+      `/api/invoices/${id}/send-reminder`,
+      { method: "POST" }
+    ),
   paymentPage: (token: string) =>
     apiFetch<PaymentPage>(`/api/invoices/by-token/${token}/payment-page`, {}, false),
   runCollectionsAgent: () =>

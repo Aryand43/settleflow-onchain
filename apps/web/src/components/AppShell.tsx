@@ -3,27 +3,39 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { MotionConfig } from "framer-motion";
-import { FileText, LayoutDashboard, Plus } from "lucide-react";
+import { FileText, LayoutDashboard, LogOut, Plus, Users } from "lucide-react";
+import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 
 const nav = [
-  { href: "/", label: "Overview", icon: LayoutDashboard },
+  { href: "/dashboard", label: "Overview", icon: LayoutDashboard },
   { href: "/invoices", label: "Invoices", icon: FileText },
+  { href: "/customers", label: "Customers", icon: Users },
   { href: "/invoices/new", label: "Collect payment", icon: Plus },
 ];
 
+/*
+ * Surfaces that render without the merchant shell. The payer page belongs to
+ * the customer, and the marketing and auth pages are seen before there is an
+ * account to put in a sidebar.
+ */
+const BARE_ROUTES = ["/pay", "/login", "/signup"];
+
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const { user, signOut } = useAuth();
 
-  if (pathname.startsWith("/pay")) {
+  if (pathname === "/" || BARE_ROUTES.some((route) => pathname.startsWith(route))) {
     return <MotionConfig reducedMotion="user">{children}</MotionConfig>;
   }
+
+  const home = user ? "/dashboard" : "/";
 
   return (
     <MotionConfig reducedMotion="user">
     <div className="flex min-h-screen bg-canvas text-content">
       <aside className="hidden w-[13.5rem] shrink-0 flex-col border-r border-line bg-surface md:flex">
-        <Link href="/" className="flex items-center gap-3 px-4 py-5">
+        <Link href={home} className="flex items-center gap-3 px-4 py-5">
           <span
             aria-hidden
             className="flex h-8 w-8 items-center justify-center rounded bg-accent font-mono text-xs font-bold text-accent-on"
@@ -65,7 +77,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <header className="sticky top-0 z-10 border-b border-line bg-canvas/90 backdrop-blur">
           <div className="flex items-center justify-between gap-3 px-4 py-3 sm:px-6">
             <div className="flex min-w-0 items-center gap-3">
-              <Link href="/" className="flex items-center gap-2 md:hidden">
+              <Link href={home} className="flex items-center gap-2 md:hidden">
                 <span
                   aria-hidden
                   className="flex h-8 w-8 items-center justify-center rounded bg-accent font-mono text-xs font-bold text-accent-on"
@@ -74,21 +86,37 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 </span>
               </Link>
               <div className="min-w-0">
-                <p className="truncate text-sm font-medium text-content">Demo Merchant</p>
-                <p className="text-xs text-content-muted">Demo workspace</p>
+                <p className="truncate text-sm font-medium text-content">
+                  {user ? user.business_name || user.name : "SettleFlow"}
+                </p>
+                <p className="truncate text-xs text-content-muted">
+                  {user ? user.email : "Signed out"}
+                </p>
               </div>
               <span className="shrink-0 rounded border border-overdue/40 bg-overdue-tint px-2 py-0.5 text-[11px] text-overdue">
                 Testnet
               </span>
             </div>
-            <Link
-              href="/invoices/new"
-              className="inline-flex shrink-0 items-center gap-2 rounded bg-accent px-3 py-2 text-sm font-medium text-accent-on transition-colors duration-150 hover:bg-accent-hover"
-            >
-              <Plus aria-hidden className="h-4 w-4" />
-              <span className="hidden sm:inline">Collect payment</span>
-              <span className="sr-only sm:hidden">Collect payment</span>
-            </Link>
+            <div className="flex shrink-0 items-center gap-2">
+              <Link
+                href="/invoices/new"
+                className="inline-flex shrink-0 items-center gap-2 rounded bg-accent px-3 py-2 text-sm font-medium text-accent-on transition-colors duration-150 hover:bg-accent-hover"
+              >
+                <Plus aria-hidden className="h-4 w-4" />
+                <span className="hidden sm:inline">Collect payment</span>
+                <span className="sr-only sm:hidden">Collect payment</span>
+              </Link>
+              {user && (
+                <button
+                  onClick={signOut}
+                  title="Sign out"
+                  className="rounded p-2 text-content-muted transition-colors duration-150 hover:bg-surface-raised hover:text-content"
+                >
+                  <LogOut aria-hidden className="h-4 w-4" />
+                  <span className="sr-only">Sign out</span>
+                </button>
+              )}
+            </div>
           </div>
         </header>
 

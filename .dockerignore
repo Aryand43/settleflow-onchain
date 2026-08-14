@@ -1,0 +1,22 @@
+# Root context ignores. Each app also has its own .dockerignore, which is what
+# applies when building with that app as the context.
+.git/
+.claude/
+.impeccable/
+node_modules/
+**/node_modules/
+**/.next/
+apps/api/.venv/
+**/__pycache__/
+*.pyc
+.env
+.env.local
+**/.env
+**/.env.local
+*.db
+contracts/out/
+contracts/cache/
+contracts/lib/
+contracts/broadcast/
+docs/
+*.md

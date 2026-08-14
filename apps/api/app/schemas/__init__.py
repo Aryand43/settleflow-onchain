@@ -6,11 +6,44 @@ from typing import Dict, List, Optional
 from pydantic import BaseModel, EmailStr, Field
 
 
+class SignupRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+    email: EmailStr
+    # 72 bytes is bcrypt's hard ceiling; anything longer is silently truncated.
+    password: str = Field(min_length=8, max_length=72)
+    business_name: Optional[str] = Field(default=None, max_length=255)
+    wallet_address: Optional[str] = Field(default=None, max_length=42)
+
+
+class LoginRequest(BaseModel):
+    email: EmailStr
+    password: str
+
+
+class UserResponse(BaseModel):
+    id: int
+    name: str
+    email: str
+    business_name: Optional[str]
+    wallet_address: str
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class AuthResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    user: UserResponse
+
+
 class CustomerCreate(BaseModel):
     name: str
     email: EmailStr
     wallet_address: Optional[str] = None
     company: Optional[str] = None
+
+
 
 
 class CustomerResponse(BaseModel):
@@ -22,6 +55,13 @@ class CustomerResponse(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class CustomerImportResult(BaseModel):
+    imported: int
+    skipped: int
+    customers: List[CustomerResponse] = Field(default_factory=list)
+    errors: List[str] = Field(default_factory=list)
 
 
 class ParsedCommand(BaseModel):

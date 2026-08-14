@@ -1,18 +1,19 @@
 from fastapi import APIRouter, Depends
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.deps import verify_api_key
+from app.deps import get_current_user
 from app.models.activity import ActivityEvent
 from app.models.invoice import Invoice, InvoiceStatus
+from app.models.user import User
 from app.schemas import ActivityEventResponse, DashboardSummary
 
-router = APIRouter(dependencies=[Depends(verify_api_key)])
+router = APIRouter()
 
 
 @router.get("/dashboard/summary", response_model=DashboardSummary)
-def dashboard_summary(db: Session = Depends(get_db)):
-    invoices = db.query(Invoice).all()
+def dashboard_summary(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    invoices = db.query(Invoice).filter(Invoice.owner_id == user.id).all()
     paid = [i for i in invoices if i.status == InvoiceStatus.paid.value]
     pending = [i for i in invoices if i.status == InvoiceStatus.pending.value]
     overdue = [i for i in invoices if i.status == InvoiceStatus.overdue.value]
@@ -42,8 +43,18 @@ def dashboard_summary(db: Session = Depends(get_db)):
 
 
 @router.get("/activity", response_model=list[ActivityEventResponse])
-def list_activity(db: Session = Depends(get_db)):
-    events = db.query(ActivityEvent).order_by(ActivityEvent.created_at.desc()).limit(50).all()
+def list_activity(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    # Joined through invoices rather than filtered directly: activity events
+    # carry no owner of their own, and the invoice they hang off is what
+    # decides who may read them.
+    events = (
+        db.query(ActivityEvent)
+        .join(Invoice, ActivityEvent.invoice_id == Invoice.id)
+        .filter(Invoice.owner_id == user.id)
+        .order_by(ActivityEvent.created_at.desc())
+        .limit(50)
+        .all()
+    )
     return [
         ActivityEventResponse(
             id=e.id,
