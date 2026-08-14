@@ -1,25 +1,25 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Loader2, MessageCircle } from "lucide-react";
-import { Alert, Button, Card, CardTitle, inputStyles } from "@/components/ui";
+import { Loader2 } from "lucide-react";
+import { Alert, Button, Card, inputStyles } from "@/components/ui";
 import { api, type ChatScope, type ChatTurn } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 type ChatPanelProps = {
   scope: ChatScope;
-  title: string;
-  description: string;
   suggestions: string[];
   inputId: string;
+  title?: string;
+  description?: string;
 };
 
 export function ChatPanel({
   scope,
-  title,
-  description,
   suggestions,
   inputId,
+  title = "SettleFlow assistant",
+  description = "Read-only workspace answers",
 }: ChatPanelProps) {
   const [configured, setConfigured] = useState<boolean | null>(null);
   const [messages, setMessages] = useState<ChatTurn[]>([]);
@@ -64,21 +64,18 @@ export function ChatPanel({
   }
 
   return (
-    <Card className="flex flex-col p-6">
-      <CardTitle>
-        <span className="inline-flex items-center gap-2">
-          <MessageCircle aria-hidden className="h-4 w-4 text-content-muted" />
-          {title}
-        </span>
-      </CardTitle>
-      <p className="mt-1.5 text-sm text-content-secondary">{description}</p>
+    <Card className="flex flex-col p-4">
+      <div>
+        <h2 className="text-sm font-medium tracking-tight text-content">{title}</h2>
+        <p className="mt-0.5 text-xs text-content-muted">{description}</p>
+      </div>
 
       {configured === null && (
-        <p className="mt-4 text-sm text-content-muted">Checking whether chat is configured…</p>
+        <p className="mt-3 text-xs text-content-muted">Checking whether chat is configured…</p>
       )}
 
       {configured === false && (
-        <Alert tone="info" className="mt-4" title="Add an API key to enable this">
+        <Alert tone="info" className="mt-3" title="Add an API key to enable this">
           Paste an OpenAI-compatible key into <code className="font-mono">LLM_API_KEY</code> in{" "}
           <code className="font-mono">apps/api/.env</code>, then restart the API.
         </Alert>
@@ -89,13 +86,13 @@ export function ChatPanel({
           {messages.length > 0 && (
             <div
               ref={scroller}
-              className="mt-4 max-h-64 space-y-2.5 overflow-y-auto pr-1"
+              className="mt-3 max-h-48 space-y-2 overflow-y-auto pr-1"
             >
               {messages.map((m, i) => (
                 <div
                   key={`${m.role}-${i}`}
                   className={cn(
-                    "max-w-[85%] rounded-lg px-3 py-2 text-sm",
+                    "max-w-[85%] rounded px-3 py-2 text-sm",
                     m.role === "user"
                       ? "ml-auto bg-accent/10 text-content"
                       : "bg-surface-sunken text-content-secondary"
@@ -105,7 +102,10 @@ export function ChatPanel({
                 </div>
               ))}
               {sending && (
-                <div className="flex items-center gap-2 text-xs text-content-muted">
+                <div
+                  aria-live="polite"
+                  className="flex items-center gap-2 text-xs text-content-muted"
+                >
                   <Loader2 aria-hidden className="h-3.5 w-3.5 animate-spin" />
                   Reading your invoices…
                 </div>
@@ -114,14 +114,14 @@ export function ChatPanel({
           )}
 
           {messages.length === 0 && (
-            <div className="mt-4 flex flex-wrap gap-2">
+            <div className="mt-3 flex flex-wrap gap-2">
               {suggestions.map((prompt) => (
                 <button
                   key={prompt}
                   type="button"
                   onClick={() => send(prompt)}
                   disabled={sending}
-                  className="rounded-lg border border-line-strong bg-transparent px-3 py-1.5 text-left text-xs text-content-secondary transition-colors duration-150 hover:border-content-muted hover:text-content disabled:opacity-50"
+                  className="rounded border border-line-strong bg-transparent px-2.5 py-1 text-left text-xs text-content-secondary transition-colors duration-150 hover:border-content-muted hover:text-content disabled:opacity-50"
                 >
                   {prompt}
                 </button>
@@ -130,13 +130,13 @@ export function ChatPanel({
           )}
 
           {error && (
-            <Alert tone="error" className="mt-4">
+            <Alert tone="error" className="mt-3">
               {error}
             </Alert>
           )}
 
           <form
-            className="mt-4 flex gap-2"
+            className="mt-3 flex gap-2"
             onSubmit={(e) => {
               e.preventDefault();
               send(draft);
@@ -158,7 +158,7 @@ export function ChatPanel({
             </Button>
           </form>
 
-          <p className="mt-3 text-xs text-content-muted">
+          <p className="mt-2 text-xs text-content-muted">
             Answers from live data only. This cannot mark an invoice paid or move funds.
           </p>
         </>

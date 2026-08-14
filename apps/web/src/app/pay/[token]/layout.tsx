@@ -6,5 +6,5 @@ export const metadata: Metadata = {
 };
 
 export default function PayLayout({ children }: { children: React.ReactNode }) {
-  return children;
+  return <div className="payer-theme min-h-screen bg-canvas text-content">{children}</div>;
 }

@@ -14,66 +14,99 @@ const nav = [
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
 
-  // The payer surface is deliberately shell-free: no nav, no merchant chrome.
   if (pathname.startsWith("/pay")) {
     return <>{children}</>;
   }
 
   return (
-    <div className="flex min-h-screen flex-col bg-canvas text-content">
-      {/*
-       * Testnet disclosure lives here rather than in the sidebar, because the
-       * sidebar is hidden under md and the disclaimer used to disappear
-       * entirely on phones.
-       */}
-      <p className="border-b border-pending/25 bg-pending-tint/50 px-6 py-1.5 text-center text-xs text-pending">
-        Testnet demo — no real funds move.
-      </p>
-
-      <header className="sticky top-0 z-10 border-b border-line bg-canvas/85 backdrop-blur">
-        <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-3 sm:px-6">
-          <Link href="/" className="flex items-center gap-3 rounded-lg">
-            <span
-              aria-hidden
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-accent text-sm font-bold text-accent-on"
-            >
-              SF
-            </span>
-            <span className="min-w-0">
-              <span className="block text-base font-semibold tracking-tight text-content">
-                SettleFlow
-              </span>
-              <span className="hidden text-xs text-content-muted sm:block">
-                Automated stablecoin invoicing
-              </span>
-            </span>
-          </Link>
-
-          <Link
-            href="/invoices/new"
-            className="inline-flex shrink-0 items-center gap-2 rounded-lg bg-accent px-3 py-2 text-sm font-medium text-accent-on transition-colors duration-150 hover:bg-accent-hover sm:px-4"
+    <div className="flex min-h-screen bg-canvas text-content">
+      <aside className="hidden w-[13.5rem] shrink-0 flex-col border-r border-line bg-surface md:flex">
+        <Link href="/" className="flex items-center gap-3 px-4 py-5">
+          <span
+            aria-hidden
+            className="flex h-8 w-8 items-center justify-center rounded bg-accent font-mono text-xs font-bold text-accent-on"
           >
-            <Plus aria-hidden className="h-4 w-4" />
-            <span className="hidden sm:inline">Collect payment</span>
-            <span className="sr-only sm:hidden">Collect payment</span>
-          </Link>
-        </div>
+            SF
+          </span>
+          <span className="text-sm font-semibold tracking-tight">SettleFlow</span>
+        </Link>
 
-        {/* Mobile nav — the sidebar below is md and up only. */}
-        <nav aria-label="Main" className="overflow-x-auto border-t border-line px-4 md:hidden">
-          <ul className="flex min-w-max gap-1 py-1.5">
+        <nav aria-label="Main" className="flex-1 space-y-0.5 px-2">
+          {nav.map((item) => {
+            const active = pathname === item.href;
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                aria-current={active ? "page" : undefined}
+                className={cn(
+                  "flex items-center gap-2.5 rounded px-3 py-2 text-sm font-medium transition-colors duration-150",
+                  active
+                    ? "bg-surface-raised text-content"
+                    : "text-content-muted hover:bg-surface-raised hover:text-content"
+                )}
+              >
+                <item.icon aria-hidden className="h-4 w-4 shrink-0" />
+                {item.label}
+              </Link>
+            );
+          })}
+        </nav>
+
+        <div className="m-3 rounded border border-dashed border-overdue/40 bg-overdue-tint/40 px-3 py-3">
+          <p className="eyebrow text-overdue">Testnet demo</p>
+          <p className="mt-1 text-xs text-content-muted">No real funds</p>
+        </div>
+      </aside>
+
+      <div className="flex min-w-0 flex-1 flex-col">
+        <header className="sticky top-0 z-10 border-b border-line bg-canvas/90 backdrop-blur">
+          <div className="flex items-center justify-between gap-3 px-4 py-3 sm:px-6">
+            <div className="flex min-w-0 items-center gap-3">
+              <Link href="/" className="flex items-center gap-2 md:hidden">
+                <span
+                  aria-hidden
+                  className="flex h-8 w-8 items-center justify-center rounded bg-accent font-mono text-xs font-bold text-accent-on"
+                >
+                  SF
+                </span>
+              </Link>
+              <div className="min-w-0">
+                <p className="truncate text-sm font-medium text-content">Demo Merchant</p>
+                <p className="text-xs text-content-muted">Demo workspace</p>
+              </div>
+              <span className="shrink-0 rounded border border-overdue/40 bg-overdue-tint px-2 py-0.5 text-[11px] text-overdue">
+                Testnet
+              </span>
+            </div>
+            <Link
+              href="/invoices/new"
+              className="inline-flex shrink-0 items-center gap-2 rounded bg-accent px-3 py-2 text-sm font-medium text-accent-on transition-colors duration-150 hover:bg-accent-hover"
+            >
+              <Plus aria-hidden className="h-4 w-4" />
+              <span className="hidden sm:inline">Collect payment</span>
+              <span className="sr-only sm:hidden">Collect payment</span>
+            </Link>
+          </div>
+        </header>
+
+        <main className="min-w-0 flex-1 px-4 py-6 sm:px-6 sm:py-8">{children}</main>
+
+        <nav
+          aria-label="Main"
+          className="sticky bottom-0 border-t border-line bg-canvas/95 backdrop-blur md:hidden"
+        >
+          <ul className="flex">
             {nav.map((item) => {
               const active = pathname === item.href;
               return (
-                <li key={item.href}>
+                <li key={item.href} className="flex-1">
                   <Link
                     href={item.href}
                     aria-current={active ? "page" : undefined}
                     className={cn(
-                      "flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors duration-150",
-                      active
-                        ? "bg-surface-raised text-content"
-                        : "text-content-muted hover:text-content"
+                      "flex flex-col items-center gap-1 px-2 py-2.5 text-[11px] font-medium",
+                      active ? "text-content" : "text-content-muted"
                     )}
                   >
                     <item.icon aria-hidden className="h-4 w-4" />
@@ -84,34 +117,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             })}
           </ul>
         </nav>
-      </header>
-
-      <div className="mx-auto flex w-full max-w-7xl flex-1 gap-8 px-4 py-6 sm:px-6 sm:py-8">
-        <aside className="hidden w-48 shrink-0 md:block">
-          <nav aria-label="Main" className="sticky top-24 space-y-1">
-            {nav.map((item) => {
-              const active = pathname === item.href;
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  aria-current={active ? "page" : undefined}
-                  className={cn(
-                    "flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors duration-150",
-                    active
-                      ? "bg-surface-raised text-content"
-                      : "text-content-muted hover:bg-surface hover:text-content"
-                  )}
-                >
-                  <item.icon aria-hidden className="h-4 w-4 shrink-0" />
-                  {item.label}
-                </Link>
-              );
-            })}
-          </nav>
-        </aside>
-
-        <main className="min-w-0 flex-1">{children}</main>
       </div>
     </div>
   );

@@ -5,26 +5,15 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { Check, Copy, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-/*
- * Shared primitives. Before this file, six pages each hand-rolled their own
- * button, card, and alert, which is why "muted text" had eleven definitions
- * and no control had a focus state.
- */
-
 const buttonStyles = cva(
-  "inline-flex items-center justify-center gap-2 rounded-lg text-sm font-medium transition-colors duration-150 ease-out disabled:cursor-not-allowed disabled:opacity-50",
+  "inline-flex items-center justify-center gap-2 rounded text-sm font-medium transition-colors duration-150 ease-out disabled:cursor-not-allowed disabled:opacity-50",
   {
     variants: {
       variant: {
         primary: "bg-accent text-accent-on hover:bg-accent-hover",
-        secondary: "bg-surface-raised text-content hover:bg-line-strong",
+        secondary: "border border-line-strong bg-surface-raised text-content hover:border-content-muted",
         quiet: "text-content-secondary hover:bg-surface-raised hover:text-content",
-        /*
-         * Demo controls simulate events the product would otherwise learn from
-         * the chain. They get a dashed edge so they never read as an action
-         * that moves real money — see PRODUCT.md, principle 1.
-         */
-        demo: "border border-dashed border-line-strong bg-transparent text-content-secondary hover:border-content-muted hover:text-content",
+        demo: "border border-dashed border-overdue/50 bg-overdue-tint/40 text-overdue hover:border-overdue",
       },
       size: {
         sm: "px-3 py-1.5",
@@ -67,10 +56,7 @@ export function Card({
 }: React.HTMLAttributes<HTMLDivElement>) {
   return (
     <div
-      className={cn(
-        "rounded-xl border border-line bg-surface shadow-card",
-        className
-      )}
+      className={cn("rounded border border-line bg-surface shadow-card", className)}
       {...props}
     >
       {children}
@@ -78,36 +64,111 @@ export function Card({
   );
 }
 
+export const Panel = Card;
+
 export function CardTitle({ children }: { children: React.ReactNode }) {
-  return <h2 className="text-base font-medium text-content">{children}</h2>;
+  return <h2 className="text-lg font-medium tracking-tight text-content">{children}</h2>;
+}
+
+export function SectionHeader({
+  eyebrow,
+  title,
+  description,
+}: {
+  eyebrow?: string;
+  title: string;
+  description?: string;
+}) {
+  return (
+    <div>
+      {eyebrow && <p className="eyebrow">{eyebrow}</p>}
+      <h2 className={cn("text-lg font-medium tracking-tight text-content", eyebrow && "mt-2")}>
+        {title}
+      </h2>
+      {description && <p className="mt-1 text-sm text-content-muted">{description}</p>}
+    </div>
+  );
 }
 
 export function PageHeader({
   title,
   description,
   action,
+  eyebrow,
 }: {
   title: string;
   description?: string;
   action?: React.ReactNode;
+  eyebrow?: string;
 }) {
   return (
     <div className="flex flex-wrap items-end justify-between gap-4">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-content">{title}</h1>
-        {description && <p className="mt-1.5 text-sm text-content-muted">{description}</p>}
+        {eyebrow && <p className="eyebrow">{eyebrow}</p>}
+        <h1 className={cn("text-3xl font-semibold tracking-tight text-content sm:text-4xl", eyebrow && "mt-2")}>
+          {title}
+        </h1>
+        {description && <p className="mt-2 max-w-xl text-sm text-content-muted">{description}</p>}
       </div>
       {action}
     </div>
   );
 }
 
-const alertStyles = cva("rounded-lg border p-4 text-sm", {
+export function Metric({
+  label,
+  value,
+  sub,
+  emphasis,
+}: {
+  label: string;
+  value: string;
+  sub?: string;
+  emphasis?: "overdue" | "paid";
+}) {
+  return (
+    <div className="px-5 py-5">
+      <p className="eyebrow">{label}</p>
+      <p
+        className={cn(
+          "tabular mt-2 font-mono text-3xl font-medium tracking-tight",
+          emphasis === "overdue" && "text-overdue",
+          emphasis === "paid" && "text-paid",
+          !emphasis && "text-content"
+        )}
+      >
+        {value}
+      </p>
+      {sub && <p className="mt-1.5 text-xs text-content-muted">{sub}</p>}
+    </div>
+  );
+}
+
+export function DemoNotice({
+  title = "Demo controls",
+  children,
+}: {
+  title?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="rounded border border-dashed border-overdue/40 bg-overdue-tint/30 p-5">
+      <p className="eyebrow text-overdue">{title}</p>
+      <p className="mt-2 text-xs text-content-muted">
+        These controls simulate the demo environment. They do not move real funds. Status
+        flips to paid only after an InvoicePaid event is observed.
+      </p>
+      <div className="mt-4">{children}</div>
+    </div>
+  );
+}
+
+const alertStyles = cva("rounded border p-4 text-sm", {
   variants: {
     tone: {
-      error: "border-overdue/40 bg-overdue-tint/60 text-overdue",
-      success: "border-paid/40 bg-paid-tint/60 text-paid",
-      warning: "border-pending/40 bg-pending-tint/60 text-pending",
+      error: "border-disputed/40 bg-disputed-tint text-disputed",
+      success: "border-paid/40 bg-paid-tint text-paid",
+      warning: "border-overdue/40 bg-overdue-tint text-overdue",
       info: "border-line-strong bg-surface-raised text-content-secondary",
     },
   },
@@ -136,7 +197,7 @@ export function Alert({
 }
 
 export function Skeleton({ className }: { className?: string }) {
-  return <div className={cn("skeleton rounded-md", className)} />;
+  return <div className={cn("skeleton rounded", className)} />;
 }
 
 export function EmptyState({
@@ -151,7 +212,7 @@ export function EmptyState({
   action?: React.ReactNode;
 }) {
   return (
-    <div className="flex flex-col items-center rounded-xl border border-dashed border-line-strong px-6 py-14 text-center">
+    <div className="flex flex-col items-center rounded border border-dashed border-line-strong px-6 py-14 text-center">
       <Icon aria-hidden className="h-6 w-6 text-content-muted" />
       <p className="mt-4 font-medium text-content">{title}</p>
       <p className="mt-1 max-w-sm text-sm text-content-muted">{description}</p>
@@ -173,7 +234,7 @@ export function Field({
 }) {
   return (
     <div className="space-y-1.5">
-      <label htmlFor={htmlFor} className="block text-sm font-medium text-content-secondary">
+      <label htmlFor={htmlFor} className="eyebrow block">
         {label}
       </label>
       {children}
@@ -182,10 +243,6 @@ export function Field({
   );
 }
 
-/**
- * The demo script asks the merchant to "copy the payment URL", but the app only
- * ever rendered it as a link to select by hand.
- */
 export function CopyButton({
   value,
   label = "Copy",
@@ -206,8 +263,7 @@ export function CopyButton({
       setCopied(true);
       timer.current = setTimeout(() => setCopied(false), 1800);
     } catch {
-      // Clipboard blocked (insecure origin or denied permission) — leave the
-      // label unchanged rather than claiming a copy that did not happen.
+      /* clipboard blocked */
     }
   }
 
@@ -216,7 +272,7 @@ export function CopyButton({
       type="button"
       onClick={copy}
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-lg border border-line-strong px-2.5 py-1.5 text-xs font-medium text-content-secondary transition-colors duration-150 hover:border-content-muted hover:text-content",
+        "inline-flex items-center gap-1.5 rounded border border-line-strong px-2.5 py-1.5 text-xs font-medium text-content-secondary transition-colors duration-150 hover:border-content-muted hover:text-content",
         className
       )}
     >
@@ -234,4 +290,4 @@ export function CopyButton({
 }
 
 export const inputStyles =
-  "w-full rounded-lg border border-line-strong bg-surface-sunken px-3 py-2 text-sm text-content placeholder:text-content-muted transition-colors duration-150 hover:border-content-muted";
+  "w-full rounded border border-line-strong bg-surface-sunken px-3 py-2 text-sm text-content placeholder:text-content-muted transition-colors duration-150 hover:border-content-muted";

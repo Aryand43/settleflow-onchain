@@ -69,6 +69,18 @@ def test_health(client):
     assert res.json()["status"] == "ok"
 
 
+def test_cors_allows_next_fallback_port(client):
+    res = client.options(
+        "/api/health",
+        headers={
+            "Origin": "http://localhost:3001",
+            "Access-Control-Request-Method": "GET",
+        },
+    )
+    assert res.status_code == 200
+    assert res.headers.get("access-control-allow-origin") == "http://localhost:3001"
+
+
 def test_parse_demo_command(client, headers):
     res = client.post(
         "/api/invoices/parse-command",

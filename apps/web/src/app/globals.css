@@ -3,66 +3,101 @@
 @tailwind utilities;
 
 /*
- * SettleFlow token layer.
- *
- * These are the colors the app already used, given names. Nothing here
- * introduces a new hue: canvas/surface are the former slate-950/900, accent is
- * the former blue-600, and the four status hues match StatusBadge as shipped.
- * The point is that "muted text" now has one definition instead of eleven, and
- * every value below clears 4.5:1 against the surface it is used on.
+ * SettleFlow financial control room.
+ * --sf-* is the source palette. Existing Tailwind names (--canvas, --accent, …)
+ * map onto it so merchant pages keep their class vocabulary.
  */
 :root {
   color-scheme: dark;
 
-  /* Ground */
-  --canvas: #020617;
-  --surface: #0b1220;
-  --surface-raised: #111c31;
-  --surface-sunken: #010409;
+  --sf-ink: #101312;
+  --sf-ink-soft: #171c1a;
+  --sf-panel: #1d2421;
+  --sf-panel-raised: #252d29;
+  --sf-ivory: #f4f1e8;
+  --sf-ivory-muted: #c9c8bd;
+  --sf-line: rgba(244, 241, 232, 0.12);
+  --sf-line-strong: rgba(244, 241, 232, 0.22);
+  --sf-mint: #b8f36b;
+  --sf-mint-strong: #8cdb3f;
+  --sf-cyan: #81e6d0;
+  --sf-blue: #83b8ff;
+  --sf-amber: #f6bd60;
+  --sf-red: #ff817b;
+  --sf-success: #a8ed76;
+  --sf-white: #ffffff;
 
-  /* Lines */
-  --line: #1e293b;
-  --line-strong: #334155;
+  --canvas: var(--sf-ink);
+  --surface: var(--sf-ink-soft);
+  --surface-raised: var(--sf-panel);
+  --surface-sunken: #0c100f;
 
-  /* Text — every value verified against --canvas and --surface */
-  --text: #f1f5f9;
-  --text-secondary: #cbd5e1;
-  --text-muted: #94a3b8;
+  --line: var(--sf-line);
+  --line-strong: var(--sf-line-strong);
 
-  /* Accent */
-  --accent: #2563eb;
-  --accent-hover: #3b82f6;
-  --accent-text: #93c5fd;
-  --accent-on: #ffffff;
+  --text: var(--sf-ivory);
+  --text-secondary: var(--sf-ivory-muted);
+  --text-muted: #8f948c;
 
-  /* Status — hue plus a tint for the badge ground */
-  --paid: #34d399;
-  --paid-tint: #064e3b;
-  --pending: #fbbf24;
-  --pending-tint: #4a2f04;
-  --overdue: #f87171;
-  --overdue-tint: #4c1d1d;
-  --neutral: #94a3b8;
-  --neutral-tint: #1e293b;
-  --disputed: #c4b5fd;
-  --disputed-tint: #3b2f63;
+  --accent: var(--sf-mint);
+  --accent-hover: var(--sf-mint-strong);
+  --accent-text: var(--sf-mint);
+  --accent-on: var(--sf-ink);
 
-  /*
-   * Chart fills are their own steps of the same status language. The badge
-   * steps above are tuned to be read as text on a tint; these are tuned to be
-   * read as areas on --surface, and clear the lightness band, CVD separation,
-   * and contrast checks as a set.
-   */
-  --chart-collected: #0d9488;
-  --chart-outstanding: #d97706;
-  --chart-overdue: #e11d48;
+  --chain: var(--sf-cyan);
+  --chain-tint: rgba(129, 230, 208, 0.12);
 
-  /* Elevation — offset and blur, never a flat halo */
-  --shadow-card: 0 1px 2px rgb(2 6 23 / 0.4), 0 8px 24px -12px rgb(2 6 23 / 0.7);
-  --shadow-lifted: 0 2px 4px rgb(2 6 23 / 0.5), 0 24px 48px -24px rgb(2 6 23 / 0.9);
+  --paid: var(--sf-success);
+  --paid-tint: rgba(168, 237, 118, 0.12);
+  --pending: var(--sf-blue);
+  --pending-tint: rgba(131, 184, 255, 0.12);
+  --overdue: var(--sf-amber);
+  --overdue-tint: rgba(246, 189, 96, 0.14);
+  --neutral: var(--sf-ivory-muted);
+  --neutral-tint: rgba(244, 241, 232, 0.08);
+  --disputed: var(--sf-red);
+  --disputed-tint: rgba(255, 129, 123, 0.14);
 
-  /* Motion */
+  --chart-collected: var(--sf-mint);
+  --chart-outstanding: var(--sf-cyan);
+  --chart-overdue: var(--sf-amber);
+
+  --shadow-card: 0 1px 0 rgba(244, 241, 232, 0.04), 0 12px 32px -20px rgba(0, 0, 0, 0.55);
+  --shadow-lifted: 0 1px 0 rgba(244, 241, 232, 0.06), 0 24px 48px -24px rgba(0, 0, 0, 0.7);
+
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --radius: 0.5rem;
+}
+
+.payer-theme {
+  color-scheme: light;
+  --canvas: #ebe7db;
+  --surface: var(--sf-ivory);
+  --surface-raised: #faf8f2;
+  --surface-sunken: #e4e0d4;
+  --line: rgba(16, 19, 18, 0.1);
+  --line-strong: rgba(16, 19, 18, 0.2);
+  --text: var(--sf-ink);
+  --text-secondary: #3d4440;
+  --text-muted: #6b736e;
+  --accent: #4d7c0f;
+  --accent-hover: #3f6a0c;
+  --accent-text: #3f6a0c;
+  --accent-on: var(--sf-ivory);
+  --chain: #0f766e;
+  --chain-tint: rgba(15, 118, 110, 0.1);
+  --paid: #3f6a0c;
+  --paid-tint: rgba(63, 106, 12, 0.1);
+  --pending: #1d4ed8;
+  --pending-tint: rgba(29, 78, 216, 0.1);
+  --overdue: #b45309;
+  --overdue-tint: rgba(180, 83, 9, 0.12);
+  --neutral: #6b736e;
+  --neutral-tint: rgba(16, 19, 18, 0.06);
+  --disputed: #b91c1c;
+  --disputed-tint: rgba(185, 28, 28, 0.1);
+  --shadow-card: 0 1px 2px rgba(16, 19, 18, 0.06), 0 16px 40px -24px rgba(16, 19, 18, 0.18);
+  --shadow-lifted: 0 2px 4px rgba(16, 19, 18, 0.06), 0 28px 48px -28px rgba(16, 19, 18, 0.22);
 }
 
 body {
@@ -72,20 +107,23 @@ body {
     "Segoe UI", Roboto, sans-serif;
 }
 
-/*
- * One focus ring for the whole app. The default browser outline is nearly
- * invisible on this canvas, and the app previously shipped no replacement.
- */
 :where(a, button, input, select, textarea, [tabindex]):focus-visible {
-  outline: 2px solid var(--accent-hover);
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
-  border-radius: 0.5rem;
+  border-radius: 4px;
 }
 
-/* Money and dates line up column-to-column instead of drifting. */
 .tabular {
   font-variant-numeric: tabular-nums;
   font-feature-settings: "tnum";
+}
+
+.eyebrow {
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-muted);
 }
 
 @keyframes settleflow-rise {
@@ -99,12 +137,8 @@ body {
   }
 }
 
-/*
- * The one authored moment: content settles in on arrival. Applied to page
- * roots only, not to every element on the page.
- */
 .rise {
-  animation: settleflow-rise 0.45s var(--ease-out) both;
+  animation: settleflow-rise 0.28s var(--ease-out) both;
 }
 
 @keyframes settleflow-pulse {

@@ -9,6 +9,7 @@ import {
   ExternalLink,
   FastForward,
   MessageCircle,
+  ScanSearch,
   Send,
   Wallet,
 } from "lucide-react";
@@ -17,14 +18,22 @@ import {
   Alert,
   Button,
   Card,
-  CardTitle,
   CopyButton,
-  PageHeader,
+  DemoNotice,
   Skeleton,
 } from "@/components/ui";
 import { explorerTxUrl } from "@/lib/contracts";
 import { api, DEMO_MODE, type ActivityEvent, type Invoice, type NegotiationMessage } from "@/lib/api";
-import { cn, formatCurrency, formatDate, formatDateTime, formatDueRelative, truncateHash } from "@/lib/utils";
+import {
+  activityLabel,
+  activityLane,
+  cn,
+  formatCurrency,
+  formatDate,
+  formatDateTime,
+  formatDueRelative,
+  truncateHash,
+} from "@/lib/utils";
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -94,8 +103,8 @@ export default function InvoiceDetailPage({ params }: { params: { id: string } }
         <Skeleton className="h-4 w-32" />
         <Skeleton className="h-9 w-40" />
         <div className="grid gap-6 lg:grid-cols-2">
-          <Skeleton className="h-96 rounded-xl" />
-          <Skeleton className="h-96 rounded-xl" />
+          <Skeleton className="h-96 rounded" />
+          <Skeleton className="h-96 rounded" />
         </div>
       </div>
     );
@@ -132,13 +141,18 @@ export default function InvoiceDetailPage({ params }: { params: { id: string } }
           <ArrowLeft aria-hidden className="h-4 w-4" />
           Back to invoices
         </Link>
-        <div className="mt-3">
-          <PageHeader
-            title={invoice.invoice_number}
-            description={invoice.description}
-            action={<StatusBadge status={invoice.status} />}
-          />
+        <div className="mt-3 flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h1 className="font-mono text-3xl font-semibold tracking-tight text-content">
+              {invoice.invoice_number}
+            </h1>
+            <p className="mt-2 max-w-xl text-sm text-content-muted">{invoice.description}</p>
+          </div>
+          <StatusBadge status={invoice.status} size="large" />
         </div>
+        <p aria-live="polite" className="sr-only">
+          Invoice {invoice.invoice_number} is {invoice.status}
+        </p>
       </div>
 
       {message && <Alert tone="success">{message}</Alert>}
@@ -146,16 +160,16 @@ export default function InvoiceDetailPage({ params }: { params: { id: string } }
 
       <div className="grid items-start gap-6 lg:grid-cols-2">
         <Card className="p-6">
-          <CardTitle>Invoice details</CardTitle>
+          <h2 className="text-lg font-medium tracking-tight text-content">Invoice details</h2>
           <dl className="mt-3 divide-y divide-line">
             <Row label="Customer">{invoice.customer_name}</Row>
             <Row label="Amount">
-              <span className="tabular font-medium">
+              <span className="tabular font-mono font-medium">
                 {formatCurrency(invoice.amount, invoice.currency)}
               </span>
             </Row>
             <Row label="Due date">
-              <span className="tabular">{formatDate(invoice.due_date)}</span>
+              <span className="tabular font-mono">{formatDate(invoice.due_date)}</span>
               {!isPaid && (
                 <span className="block text-xs text-content-muted">
                   {formatDueRelative(invoice.due_date)}
@@ -170,7 +184,7 @@ export default function InvoiceDetailPage({ params }: { params: { id: string } }
                 <span className="inline-flex items-center gap-2">
                   <span
                     title={invoice.blockchain_tx_hash}
-                    className="tabular font-mono text-xs text-paid"
+                    className="tabular font-mono text-xs text-chain"
                   >
                     {truncateHash(invoice.blockchain_tx_hash)}
                   </span>
@@ -180,7 +194,7 @@ export default function InvoiceDetailPage({ params }: { params: { id: string } }
                       href={txUrl}
                       target="_blank"
                       rel="noreferrer"
-                      className="text-accent-text hover:text-content"
+                      className="text-chain hover:text-content"
                     >
                       <ExternalLink aria-hidden className="h-3.5 w-3.5" />
                       <span className="sr-only">View transaction on the block explorer</span>
@@ -190,9 +204,16 @@ export default function InvoiceDetailPage({ params }: { params: { id: string } }
               </Row>
             )}
           </dl>
+        </Card>
 
-          {invoice.payment_url && (
-            <div className="mt-5 border-t border-line pt-5">
+        <Card className="p-6">
+          <h2 className="text-lg font-medium tracking-tight text-content">Share payment</h2>
+          <p className="mt-1 text-sm text-content-muted">
+            Testnet only. The customer pays from this link; SettleFlow does not mark it paid.
+          </p>
+
+          {invoice.payment_url ? (
+            <div className="mt-5">
               <div className="flex items-center justify-between gap-3">
                 <p className="text-sm text-content-muted">Payment link</p>
                 <CopyButton value={invoice.payment_url} label="Copy link" />
@@ -201,160 +222,194 @@ export default function InvoiceDetailPage({ params }: { params: { id: string } }
                 href={invoice.payment_url}
                 target="_blank"
                 rel="noreferrer"
-                className="mt-2 block break-all text-sm text-accent-text hover:underline"
+                className="mt-2 block break-all font-mono text-xs text-accent-text hover:underline"
               >
                 {invoice.payment_url}
               </a>
               <div className="mt-4 flex flex-col items-center gap-2">
-                {/* QR needs a light quiet zone to scan reliably. */}
-                <div className="rounded-xl bg-white p-3">
+                <div className="rounded bg-white p-3">
                   <QRCodeSVG value={invoice.payment_url} size={128} />
                 </div>
                 <p className="text-xs text-content-muted">Scan to open the payment page</p>
               </div>
             </div>
+          ) : (
+            <p className="mt-4 text-sm text-content-muted">No payment link on this invoice yet.</p>
           )}
+
+          <div className="mt-5 flex flex-wrap gap-2 border-t border-line pt-4">
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => runAction("send", () => api.sendInvoice(id))}
+              loading={actionLoading === "send"}
+              disabled={!!actionLoading}
+            >
+              <Send aria-hidden className="h-4 w-4" />
+              Send email preview
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => runAction("reminder", () => api.sendReminder(id))}
+              loading={actionLoading === "reminder"}
+              disabled={!!actionLoading || isPaid}
+            >
+              <BellRing aria-hidden className="h-4 w-4" />
+              Send reminder
+            </Button>
+          </div>
         </Card>
+      </div>
 
-        <div className="space-y-6">
-          <Card className="p-6">
-            <CardTitle>Actions</CardTitle>
-
-            <div className="mt-4 flex flex-wrap gap-2">
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => runAction("send", () => api.sendInvoice(id))}
-                loading={actionLoading === "send"}
-                disabled={!!actionLoading}
-              >
-                <Send aria-hidden className="h-4 w-4" />
-                Send invoice email
-              </Button>
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => runAction("reminder", () => api.sendReminder(id))}
-                loading={actionLoading === "reminder"}
-                disabled={!!actionLoading || isPaid}
-              >
-                <BellRing aria-hidden className="h-4 w-4" />
-                Send reminder
-              </Button>
-            </div>
-
-            {/*
-             * Demo controls are fenced off from the real actions above. They
-             * stand in for events the product would otherwise learn from the
-             * chain, so they must never look like a button that moves money.
-             */}
-            {DEMO_MODE && (
-              <div className="mt-5 border-t border-dashed border-line-strong pt-4">
-                <p className="text-xs uppercase tracking-wide text-content-muted">
-                  Demo controls
-                </p>
-                <p className="mt-1 text-xs text-content-muted">
-                  Simulated locally. No transaction is broadcast.
-                </p>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <Button
-                    variant="demo"
-                    size="sm"
-                    onClick={() => runAction("time", () => api.simulateTime(id))}
-                    loading={actionLoading === "time"}
-                    disabled={!!actionLoading || isPaid}
-                  >
-                    <FastForward aria-hidden className="h-4 w-4" />
-                    Simulate time
-                  </Button>
-                  <Button
-                    variant="demo"
-                    size="sm"
-                    onClick={() => runAction("pay", () => api.simulatePayment(id))}
-                    loading={actionLoading === "pay"}
-                    disabled={!!actionLoading || isPaid}
-                  >
-                    <Wallet aria-hidden className="h-4 w-4" />
-                    Simulate payment
-                  </Button>
-                </div>
-              </div>
-            )}
-
-            {isPaid && (
-              <p className="mt-4 text-xs text-content-muted">
-                This invoice is settled. Reminders and simulations are disabled.
-              </p>
-            )}
-          </Card>
-
-          {negotiation.length > 0 && (
-            <Card className="p-6">
-              <CardTitle>
-                <span className="inline-flex items-center gap-2">
-                  <MessageCircle aria-hidden className="h-4 w-4 text-content-muted" />
-                  Negotiation
-                </span>
-              </CardTitle>
-              <p className="mt-1 text-xs text-content-muted">
-                What the customer asked for, and how the collections agent responded &mdash;
-                automatically, and only ever within its allowed bounds.
-              </p>
-              <ul className="mt-4 space-y-2.5">
-                {negotiation.map((m) => (
-                  <li
-                    key={m.id}
-                    className={cn(
-                      "max-w-[85%] rounded-lg px-3 py-2 text-sm",
-                      m.sender === "customer"
-                        ? "bg-surface-sunken text-content"
-                        : "ml-auto bg-accent/10 text-content-secondary"
-                    )}
-                  >
-                    <p>{m.message}</p>
-                    <p className="mt-1 text-[11px] uppercase tracking-wide text-content-muted">
-                      {m.sender === "customer" ? "Customer" : "Agent"}
-                    </p>
-                  </li>
-                ))}
-              </ul>
-            </Card>
-          )}
-
-          <Card className="p-6">
-            <CardTitle>Activity timeline</CardTitle>
-            {activity.length === 0 ? (
-              <p className="mt-4 text-sm text-content-muted">
-                Nothing has happened on this invoice yet.
-              </p>
-            ) : (
-              <ol className="mt-4">
-                {activity.map((event, i) => (
-                  <li key={event.id} className="relative flex gap-3 pb-5 last:pb-0">
-                    {/* Hairline rail plus a node, rather than a heavy colored edge. */}
-                    {i < activity.length - 1 && (
-                      <span
-                        aria-hidden
-                        className="absolute left-[3px] top-3 h-full w-px bg-line"
-                      />
-                    )}
+      <Card className="p-6">
+        <h2 className="text-lg font-medium tracking-tight text-content">Evidence</h2>
+        <p className="mt-1 text-sm text-content-muted">
+          Chain events are marked in cyan. Paid status only changes after InvoicePaid is observed.
+        </p>
+        {activity.length === 0 ? (
+          <p className="mt-4 text-sm text-content-muted">
+            Nothing has happened on this invoice yet.
+          </p>
+        ) : (
+          <ol className="mt-5">
+            {activity.map((event, i) => {
+              const lane = activityLane(event.event_type);
+              const chain = lane === "chain";
+              return (
+                <li key={event.id} className="relative flex gap-3 pb-5 last:pb-0">
+                  {i < activity.length - 1 && (
                     <span
                       aria-hidden
-                      className="relative mt-1.5 h-[7px] w-[7px] shrink-0 rounded-full bg-content-muted"
+                      className="absolute left-[3px] top-3 h-full w-px bg-line"
                     />
-                    <div className="min-w-0">
-                      <p className="text-sm text-content-secondary">{event.message}</p>
-                      <p className="tabular mt-0.5 text-xs text-content-muted">
-                        {formatDateTime(event.created_at)}
-                      </p>
+                  )}
+                  <span
+                    aria-hidden
+                    className={cn(
+                      "relative mt-1.5 h-[7px] w-[7px] shrink-0 rounded-full",
+                      chain ? "bg-chain" : "bg-content-muted"
+                    )}
+                  />
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-baseline gap-2">
+                      <span
+                        className={cn(
+                          "text-[11px] font-medium uppercase tracking-wide",
+                          chain ? "text-chain" : "text-content-muted"
+                        )}
+                      >
+                        {activityLabel(event.event_type)}
+                      </span>
+                      <span className="text-[11px] text-content-muted">{lane}</span>
                     </div>
-                  </li>
-                ))}
-              </ol>
-            )}
-          </Card>
+                    <p className={cn("mt-0.5 text-sm", chain ? "font-mono text-xs text-chain" : "text-content-secondary")}>
+                      {event.message}
+                    </p>
+                    <p className="tabular mt-0.5 text-xs text-content-muted">
+                      {formatDateTime(event.created_at)}
+                    </p>
+                  </div>
+                </li>
+              );
+            })}
+          </ol>
+        )}
+      </Card>
+
+      {negotiation.length > 0 && (
+        <Card className="p-6">
+          <h2 className="text-lg font-medium tracking-tight text-content">
+            <span className="inline-flex items-center gap-2">
+              <MessageCircle aria-hidden className="h-4 w-4 text-content-muted" />
+              Negotiation
+            </span>
+          </h2>
+          <p className="mt-1 text-xs text-content-muted">
+            What the customer asked for, and how the collections agent responded — automatically,
+            and only ever within its allowed bounds.
+          </p>
+          <ul className="mt-4 space-y-2.5">
+            {negotiation.map((m) => (
+              <li
+                key={m.id}
+                className={cn(
+                  "max-w-[85%] rounded px-3 py-2 text-sm",
+                  m.sender === "customer"
+                    ? "bg-surface-sunken text-content"
+                    : "ml-auto bg-accent/10 text-content-secondary"
+                )}
+              >
+                <p>{m.message}</p>
+                <p className="mt-1 text-[11px] uppercase tracking-wide text-content-muted">
+                  {m.sender === "customer" ? "Customer" : "Agent"}
+                </p>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
+
+      {DEMO_MODE ? (
+        <DemoNotice title="Demo controls">
+          <p className="mb-4 text-sm text-content-secondary">
+            Simulate payment mints test USDC, approves the router, and calls payInvoice on the
+            configured chain. Status flips to paid only after an InvoicePaid event is observed.
+            Simulate time advances the due date locally so reminder rules can fire. Scan
+            blockchain reads events that have already been emitted.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="demo"
+              size="sm"
+              onClick={() => runAction("pay", () => api.simulatePayment(id))}
+              loading={actionLoading === "pay"}
+              disabled={!!actionLoading || isPaid}
+            >
+              <Wallet aria-hidden className="h-4 w-4" />
+              Simulate payment
+            </Button>
+            <Button
+              variant="demo"
+              size="sm"
+              onClick={() => runAction("time", () => api.simulateTime(id))}
+              loading={actionLoading === "time"}
+              disabled={!!actionLoading || isPaid}
+            >
+              <FastForward aria-hidden className="h-4 w-4" />
+              Simulate time
+            </Button>
+            <Button
+              variant="demo"
+              size="sm"
+              onClick={() => runAction("scan", () => api.scanBlockchain())}
+              loading={actionLoading === "scan"}
+              disabled={!!actionLoading}
+            >
+              <ScanSearch aria-hidden className="h-4 w-4" />
+              Scan blockchain
+            </Button>
+          </div>
+          {isPaid && (
+            <p className="mt-3 text-xs text-content-muted">
+              This invoice is settled. Reminders and payment simulation are disabled.
+            </p>
+          )}
+        </DemoNotice>
+      ) : (
+        <div className="flex flex-wrap gap-2">
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => runAction("scan", () => api.scanBlockchain())}
+            loading={actionLoading === "scan"}
+            disabled={!!actionLoading}
+          >
+            <ScanSearch aria-hidden className="h-4 w-4" />
+            Scan blockchain
+          </Button>
         </div>
-      </div>
+      )}
     </div>
   );
 }

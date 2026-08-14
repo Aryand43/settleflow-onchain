@@ -55,3 +55,42 @@ export function truncateHash(hash: string, lead = 10, tail = 8) {
   if (hash.length <= lead + tail + 1) return hash;
   return `${hash.slice(0, lead)}…${hash.slice(-tail)}`;
 }
+
+export type ActivityLane = "merchant" | "agent" | "chain";
+
+export function activityLane(eventType: string): ActivityLane {
+  switch (eventType) {
+    case "payment_detected":
+    case "payment_confirmed":
+    case "payment_failed":
+      return "chain";
+    case "reminder_sent":
+    case "due_date_extended":
+      return "agent";
+    default:
+      return "merchant";
+  }
+}
+
+export function activityLabel(eventType: string) {
+  switch (eventType) {
+    case "invoice_created":
+      return "Created";
+    case "invoice_sent":
+      return "Sent";
+    case "invoice_overdue":
+      return "Overdue";
+    case "reminder_sent":
+      return "Reminder";
+    case "payment_detected":
+      return "Payment detected";
+    case "payment_confirmed":
+      return "Confirmed";
+    case "payment_failed":
+      return "Payment failed";
+    case "due_date_extended":
+      return "Due date extended";
+    default:
+      return eventType.replace(/_/g, " ");
+  }
+}

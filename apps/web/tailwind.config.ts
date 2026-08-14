@@ -35,10 +35,17 @@ const config: Config = {
         overdue: { DEFAULT: "var(--overdue)", tint: "var(--overdue-tint)" },
         neutral: { DEFAULT: "var(--neutral)", tint: "var(--neutral-tint)" },
         disputed: { DEFAULT: "var(--disputed)", tint: "var(--disputed-tint)" },
+        chain: { DEFAULT: "var(--chain)", tint: "var(--chain-tint)" },
       },
       fontFamily: {
         sans: ["var(--font-sans)", "ui-sans-serif", "system-ui", "sans-serif"],
         mono: ["var(--font-mono)", "ui-monospace", "SFMono-Regular", "monospace"],
+      },
+      borderRadius: {
+        DEFAULT: "var(--radius)",
+        sm: "0.375rem",
+        md: "var(--radius)",
+        lg: "var(--radius)",
       },
       boxShadow: {
         card: "var(--shadow-card)",

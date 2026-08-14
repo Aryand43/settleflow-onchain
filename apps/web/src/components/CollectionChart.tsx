@@ -4,12 +4,6 @@ import { useState } from "react";
 import { PieChart } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
 
-/*
- * The API returns exactly three values — Collected, Outstanding, Overdue —
- * which sum to total invoiced value. Three separate bars encoded that as a
- * magnitude comparison and duplicated the stat row above it; a single
- * composition bar shows the one thing the stat row cannot: proportion.
- */
 const fills: Record<string, string> = {
   Collected: "var(--chart-collected)",
   Outstanding: "var(--chart-outstanding)",
@@ -24,12 +18,22 @@ export function CollectionChart({ data }: { data: Datum[] }) {
 
   if (total <= 0) {
     return (
-      <div className="flex h-40 flex-col items-center justify-center rounded-lg border border-dashed border-line-strong text-center">
-        <PieChart aria-hidden className="h-5 w-5 text-content-muted" />
-        <p className="mt-3 text-sm text-content-muted">
-          No invoiced value yet. The breakdown fills in as you create invoices.
-        </p>
-      </div>
+      <figure className="m-0">
+        <div className="mb-5">
+          <h2 className="text-lg font-medium tracking-tight text-content">
+            Where money is in the pipeline
+          </h2>
+          <p className="mt-1 text-sm text-content-muted">
+            Current invoice status across the workspace
+          </p>
+        </div>
+        <div className="flex h-40 flex-col items-center justify-center border border-dashed border-line-strong text-center">
+          <PieChart aria-hidden className="h-5 w-5 text-content-muted" />
+          <p className="mt-3 text-sm text-content-muted">
+            No invoiced value yet. The pipeline fills in as you create invoices.
+          </p>
+        </div>
+      </figure>
     );
   }
 
@@ -37,12 +41,22 @@ export function CollectionChart({ data }: { data: Datum[] }) {
 
   return (
     <figure className="m-0">
-      {/* 2px surface gaps keep adjacent fills from reading as one shape. */}
+      <div className="mb-5">
+        <h2 className="text-lg font-medium tracking-tight text-content">
+          Where money is in the pipeline
+        </h2>
+        <p className="mt-1 text-sm text-content-muted">
+          Current invoice status across the workspace
+        </p>
+      </div>
       <div
-        className="flex h-4 w-full gap-0.5 overflow-hidden rounded-full"
+        className="flex h-3 w-full gap-px overflow-hidden"
         role="img"
         aria-label={segments
-          .map((d) => `${d.name} ${formatCurrency(d.value)}, ${Math.round((d.value / total) * 100)} percent`)
+          .map(
+            (d) =>
+              `${d.name} ${formatCurrency(d.value)}, ${Math.round((d.value / total) * 100)} percent`
+          )
           .join("; ")}
       >
         {segments.map((d) => (
@@ -53,17 +67,12 @@ export function CollectionChart({ data }: { data: Datum[] }) {
             style={{
               width: `${(d.value / total) * 100}%`,
               backgroundColor: fills[d.name] ?? "var(--neutral)",
-              opacity: hovered && hovered !== d.name ? 0.45 : 1,
+              opacity: hovered && hovered !== d.name ? 0.4 : 1,
             }}
-            className="h-full rounded-sm transition-opacity duration-150 ease-out first:rounded-l-full last:rounded-r-full"
+            className="h-full transition-opacity duration-150 ease-out"
           />
         ))}
       </div>
-
-      {/*
-       * Legend doubles as the value table: identity never rests on color, and
-       * every figure is readable without hovering.
-       */}
       <figcaption className="mt-5">
         <dl className="divide-y divide-line">
           {data.map((d) => {
@@ -79,12 +88,14 @@ export function CollectionChart({ data }: { data: Datum[] }) {
                   <span
                     aria-hidden
                     style={{ backgroundColor: fills[d.name] ?? "var(--neutral)" }}
-                    className="h-2.5 w-2.5 shrink-0 rounded-sm"
+                    className="h-2 w-2 shrink-0"
                   />
                   <span className="truncate text-sm text-content-secondary">{d.name}</span>
                 </dt>
                 <dd className="flex shrink-0 items-baseline gap-3">
-                  <span className="tabular text-sm text-content">{formatCurrency(d.value)}</span>
+                  <span className="tabular font-mono text-sm text-content">
+                    {formatCurrency(d.value)}
+                  </span>
                   <span className="tabular w-11 text-right text-xs text-content-muted">
                     {share.toFixed(share < 10 && share > 0 ? 1 : 0)}%
                   </span>

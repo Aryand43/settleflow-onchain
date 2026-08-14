@@ -185,6 +185,8 @@ export const api = {
     ),
   invoiceMessages: (id: number) =>
     apiFetch<NegotiationMessage[]>(`/api/invoices/${id}/messages`),
+  scanBlockchain: () =>
+    apiFetch<{ processed: number; message: string }>("/api/blockchain/scan", { method: "POST" }),
   chatStatus: () => apiFetch<ChatStatus>("/api/chat/status"),
   chat: (data: { message: string; scope: ChatScope; history: ChatTurn[] }) =>
     apiFetch<ChatReply>("/api/chat", {

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
-import { CircleCheck, Clock, Loader2, MessageCircle, TriangleAlert } from "lucide-react";
+import { CircleCheck, Loader2, MessageCircle, ShieldCheck, TriangleAlert } from "lucide-react";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Button, CopyButton, inputStyles } from "@/components/ui";
 import { api, type NegotiationMessage, type PaymentPage } from "@/lib/api";
@@ -76,51 +76,67 @@ export default function PayPage({ params }: { params: { token: string } }) {
     <div className="min-h-screen bg-canvas px-4 py-10 text-content sm:py-16">
       <div className="rise mx-auto max-w-md">
         {data.demo_mode && (
-          <p className="mb-5 rounded-lg border border-pending/30 bg-pending-tint/50 px-4 py-2.5 text-center text-xs text-pending">
+          <p className="mb-5 rounded border border-overdue/30 bg-overdue-tint px-4 py-2.5 text-center text-xs text-overdue">
             Testnet demo — no real funds will be collected.
           </p>
         )}
 
-        <div className="overflow-hidden rounded-2xl border border-line bg-surface shadow-lifted">
+        <div className="overflow-hidden rounded border border-line bg-surface shadow-lifted">
           <div className="border-b border-line px-6 py-5 sm:px-7">
             <div className="flex items-start justify-between gap-4">
               <div className="min-w-0">
-                <p className="text-sm text-content-muted">Invoice from</p>
-                <p className="truncate font-medium text-content">{data.merchant_name}</p>
+                <p className="text-sm text-content-muted">Payment request</p>
+                <p className="mt-1 truncate font-medium text-content">{data.merchant_name}</p>
               </div>
               <StatusBadge status={data.status} />
             </div>
           </div>
 
           <div className="px-6 py-6 sm:px-7">
-            {/* The one number this page exists to communicate. */}
             <p className="text-sm text-content-muted">Amount due</p>
-            <p className="tabular mt-1 text-4xl font-semibold tracking-tight text-content">
+            <p className="tabular mt-1 font-mono text-4xl font-semibold tracking-tight text-content">
               {formatCurrency(data.amount, data.currency)}
             </p>
             <p className="mt-2 text-sm text-content-muted">
               <span className={late ? "text-overdue" : undefined}>
                 {paid ? "Paid" : `Due ${formatDate(data.due_date)}`}
               </span>
-              {" · "}
-              {data.invoice_number}
+            </p>
+            <p aria-live="polite" className="sr-only">
+              {paid
+                ? "Payment received. Settlement was confirmed on-chain."
+                : `Invoice ${data.invoice_number} is ${data.status}`}
             </p>
 
-            <dl className="mt-6 space-y-3 border-t border-line pt-5 text-sm">
-              <div className="flex justify-between gap-4">
-                <dt className="text-content-muted">Billed to</dt>
-                <dd className="text-right text-content">{data.customer_name}</dd>
-              </div>
-              <div className="flex justify-between gap-4">
-                <dt className="shrink-0 text-content-muted">For</dt>
-                <dd className="text-right text-content">{data.description}</dd>
-              </div>
-            </dl>
+            <p className="mt-5 flex items-start gap-2 text-xs text-content-muted">
+              <ShieldCheck aria-hidden className="mt-px h-3.5 w-3.5 shrink-0 text-chain" />
+              Protected by on-chain payment verification.
+            </p>
+
+            <details className="mt-5 border-t border-line pt-4">
+              <summary className="cursor-pointer text-sm font-medium text-content">
+                Payment details
+              </summary>
+              <dl className="mt-4 space-y-3 text-sm">
+                <div className="flex justify-between gap-4">
+                  <dt className="text-content-muted">Invoice</dt>
+                  <dd className="font-mono text-content">{data.invoice_number}</dd>
+                </div>
+                <div className="flex justify-between gap-4">
+                  <dt className="text-content-muted">Billed to</dt>
+                  <dd className="text-right text-content">{data.customer_name}</dd>
+                </div>
+                <div className="flex justify-between gap-4">
+                  <dt className="shrink-0 text-content-muted">For</dt>
+                  <dd className="text-right text-content">{data.description}</dd>
+                </div>
+              </dl>
+            </details>
           </div>
 
           <div className="border-t border-line bg-surface-sunken px-6 py-6 sm:px-7">
             {paid ? (
-              <div className="flex items-start gap-3 rounded-lg border border-paid/40 bg-paid-tint/50 p-4">
+              <div className="flex items-start gap-3 rounded border border-paid/40 bg-paid-tint/50 p-4">
                 <CircleCheck aria-hidden className="mt-0.5 h-5 w-5 shrink-0 text-paid" />
                 <div className="text-sm text-paid">
                   <p className="font-medium">Payment received</p>
@@ -130,7 +146,7 @@ export default function PayPage({ params }: { params: { token: string } }) {
                 </div>
               </div>
             ) : closed ? (
-              <div className="flex items-start gap-3 rounded-lg border border-line-strong p-4 text-sm text-content-secondary">
+              <div className="flex items-start gap-3 rounded border border-line-strong p-4 text-sm text-content-secondary">
                 <TriangleAlert aria-hidden className="mt-0.5 h-5 w-5 shrink-0 text-content-muted" />
                 <div>
                   <p className="font-medium text-content">This invoice was cancelled</p>
@@ -139,33 +155,26 @@ export default function PayPage({ params }: { params: { token: string } }) {
               </div>
             ) : (
               <>
-                {/*
-                 * The QR and link ARE the payment mechanism, so they lead here
-                 * rather than sitting under a button. No wallet-connect flow is
-                 * wired yet, and a CTA that opens an alert would be a lie.
-                 */}
                 <p className="text-sm font-medium text-content">
                   Pay in {data.currency} from your wallet
                 </p>
                 <p className="mt-1 text-sm text-content-muted">
                   Scan this code with a wallet app, or copy the link to open it on another device.
+                  There is no in-page pay button — the QR and link are the payment mechanism.
                 </p>
 
                 <div className="mt-5 flex flex-col items-center gap-4">
-                  <div className="rounded-xl bg-white p-4">
+                  <div className="rounded bg-white p-4">
                     <QRCodeSVG value={data.payment_url} size={168} />
                   </div>
                   <CopyButton value={data.payment_url} label="Copy payment link" />
                 </div>
 
-                <div className="mt-6 flex items-start gap-2.5 border-t border-line pt-5 text-xs text-content-muted">
-                  <Clock aria-hidden className="mt-px h-3.5 w-3.5 shrink-0" />
-                  <p>
-                    {data.chain_configured
-                      ? "This page updates automatically once the transfer is confirmed on-chain. You don't need to notify the sender."
-                      : "On-chain settlement isn't switched on for this demo invoice, so the status here won't change on its own."}
-                  </p>
-                </div>
+                <p className="mt-6 text-xs text-content-muted">
+                  {data.chain_configured
+                    ? "This page updates automatically once the transfer is confirmed on-chain. You don't need to notify the sender."
+                    : "On-chain settlement isn't switched on for this demo invoice, so the status here won't change on its own."}
+                </p>
               </>
             )}
           </div>
@@ -177,8 +186,9 @@ export default function PayPage({ params }: { params: { token: string } }) {
                 Need more time or want to arrange a payment plan?
               </p>
               <p className="mt-1 text-xs text-content-muted">
-                A short note here goes straight to SettleFlow's collections agent, not a person &mdash;
-                it can grant a short extension itself, or flag anything bigger for the merchant.
+                A short note here goes straight to SettleFlow&rsquo;s collections agent, not a
+                person — it can grant a short extension itself, or flag anything bigger for the
+                merchant.
               </p>
 
               {messages.length > 0 && (
@@ -187,7 +197,7 @@ export default function PayPage({ params }: { params: { token: string } }) {
                     <li
                       key={m.id}
                       className={cn(
-                        "max-w-[85%] rounded-lg px-3 py-2 text-sm",
+                        "max-w-[85%] rounded px-3 py-2 text-sm",
                         m.sender === "customer"
                           ? "ml-auto bg-accent/10 text-content"
                           : "bg-surface-sunken text-content-secondary"
@@ -200,7 +210,11 @@ export default function PayPage({ params }: { params: { token: string } }) {
               )}
 
               <div className="mt-4 flex gap-2">
+                <label htmlFor="payer-note" className="sr-only">
+                  Message the collections agent
+                </label>
                 <input
+                  id="payer-note"
                   value={draft}
                   onChange={(e) => setDraft(e.target.value)}
                   onKeyDown={(e) => {
@@ -217,7 +231,7 @@ export default function PayPage({ params }: { params: { token: string } }) {
           )}
         </div>
 
-        <p className="mt-6 text-center text-xs text-content-muted">
+        <p className="mt-6 text-center font-mono text-xs text-content-muted">
           Sent with SettleFlow · {data.invoice_number}
         </p>
       </div>
