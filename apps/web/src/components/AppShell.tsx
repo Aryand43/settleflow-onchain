@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { MotionConfig } from "framer-motion";
 import { FileText, LayoutDashboard, Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -15,10 +16,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
 
   if (pathname.startsWith("/pay")) {
-    return <>{children}</>;
+    return <MotionConfig reducedMotion="user">{children}</MotionConfig>;
   }
 
   return (
+    <MotionConfig reducedMotion="user">
     <div className="flex min-h-screen bg-canvas text-content">
       <aside className="hidden w-[13.5rem] shrink-0 flex-col border-r border-line bg-surface md:flex">
         <Link href="/" className="flex items-center gap-3 px-4 py-5">
@@ -119,5 +121,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </nav>
       </div>
     </div>
+    </MotionConfig>
   );
 }

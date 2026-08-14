@@ -6,7 +6,7 @@ import { Check, Copy, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const buttonStyles = cva(
-  "inline-flex items-center justify-center gap-2 rounded text-sm font-medium transition-colors duration-150 ease-out disabled:cursor-not-allowed disabled:opacity-50",
+  "inline-flex items-center justify-center gap-2 rounded text-sm font-medium transition-[background-color,transform,box-shadow] duration-150 ease-out active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-50 disabled:active:scale-100",
   {
     variants: {
       variant: {

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { QRCodeSVG } from "qrcode.react";
+import { motion } from "framer-motion";
 import {
   ArrowLeft,
   BellRing,
@@ -24,6 +25,7 @@ import {
 } from "@/components/ui";
 import { explorerTxUrl } from "@/lib/contracts";
 import { api, DEMO_MODE, type ActivityEvent, type Invoice, type NegotiationMessage } from "@/lib/api";
+import { EASE_OUT, fadeIn } from "@/lib/motion";
 import {
   activityLabel,
   activityLane,
@@ -318,6 +320,7 @@ export default function InvoiceDetailPage({ params }: { params: { id: string } }
       </Card>
 
       {negotiation.length > 0 && (
+        <motion.div initial="hidden" animate="show" variants={fadeIn}>
         <Card className="p-6">
           <h2 className="text-lg font-medium tracking-tight text-content">
             <span className="inline-flex items-center gap-2">
@@ -330,9 +333,12 @@ export default function InvoiceDetailPage({ params }: { params: { id: string } }
             and only ever within its allowed bounds.
           </p>
           <ul className="mt-4 space-y-2.5">
-            {negotiation.map((m) => (
-              <li
+            {negotiation.map((m, i) => (
+              <motion.li
                 key={m.id}
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.3, delay: i * 0.05, ease: EASE_OUT }}
                 className={cn(
                   "max-w-[85%] rounded px-3 py-2 text-sm",
                   m.sender === "customer"
@@ -344,10 +350,11 @@ export default function InvoiceDetailPage({ params }: { params: { id: string } }
                 <p className="mt-1 text-[11px] uppercase tracking-wide text-content-muted">
                   {m.sender === "customer" ? "Customer" : "Agent"}
                 </p>
-              </li>
+              </motion.li>
             ))}
           </ul>
         </Card>
+        </motion.div>
       )}
 
       {DEMO_MODE ? (

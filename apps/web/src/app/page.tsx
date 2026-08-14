@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { AnimatePresence, motion } from "framer-motion";
 import { ArrowRight, Inbox, Sparkles, WifiOff } from "lucide-react";
 import { CollectionChart } from "@/components/CollectionChart";
 import { ChatPanel } from "@/components/ChatPanel";
@@ -14,6 +15,7 @@ import {
   type DashboardSummary,
   type Invoice,
 } from "@/lib/api";
+import { EASE_OUT, staggerContainer, staggerItem } from "@/lib/motion";
 import {
   activityLabel,
   activityLane,
@@ -117,8 +119,13 @@ export default function OverviewPage() {
     .sort((a, b) => daysUntil(a.due_date) - daysUntil(b.due_date));
 
   return (
-    <div className="rise space-y-10">
-      <div className="flex flex-wrap items-end justify-between gap-5">
+    <motion.div
+      variants={staggerContainer}
+      initial="hidden"
+      animate="show"
+      className="space-y-10"
+    >
+      <motion.div variants={staggerItem} className="flex flex-wrap items-end justify-between gap-5">
         <div className="max-w-xl">
           <h1 className="text-3xl font-semibold tracking-tight text-content sm:text-4xl">
             Your collection desk, without the spreadsheet.
@@ -139,8 +146,9 @@ export default function OverviewPage() {
             Run collections agent
           </Button>
         </div>
-      </div>
+      </motion.div>
 
+      <motion.div variants={staggerItem}>
       <Card className="grid grid-cols-2 divide-y divide-line lg:grid-cols-4 lg:divide-x lg:divide-y-0">
         <Metric
           label="Collected"
@@ -165,9 +173,10 @@ export default function OverviewPage() {
           sub="of invoiced value"
         />
       </Card>
+      </motion.div>
 
       {overdueInvoices.length > 0 && (
-        <section>
+        <motion.section variants={staggerItem}>
           <div className="flex flex-wrap items-end justify-between gap-3">
             <div>
               <h2 className="text-lg font-medium tracking-tight text-content">Needs attention</h2>
@@ -215,10 +224,17 @@ export default function OverviewPage() {
               );
             })}
           </Card>
-        </section>
+        </motion.section>
       )}
 
+      <AnimatePresence>
       {agentResult && (
+        <motion.div
+          initial={{ opacity: 0, y: -8, height: 0 }}
+          animate={{ opacity: 1, y: 0, height: "auto" }}
+          exit={{ opacity: 0, height: 0 }}
+          transition={{ duration: 0.35, ease: EASE_OUT }}
+        >
         <Alert tone={agentResult.reminders_sent.length > 0 ? "success" : "info"}>
           {agentResult.reminders_sent.length === 0 ? (
             <p>
@@ -240,9 +256,11 @@ export default function OverviewPage() {
             </div>
           )}
         </Alert>
+        </motion.div>
       )}
+      </AnimatePresence>
 
-      <div className="grid gap-6 lg:grid-cols-2">
+      <motion.div variants={staggerItem} className="grid gap-6 lg:grid-cols-2">
         <Card className="p-6">
           <CollectionChart data={summary.chart_data} />
         </Card>
@@ -257,11 +275,16 @@ export default function OverviewPage() {
               </p>
             </div>
           ) : (
-            <ul className="mt-4 divide-y divide-line">
+            <motion.ul
+              variants={staggerContainer}
+              initial="hidden"
+              animate="show"
+              className="mt-4 divide-y divide-line"
+            >
               {activity.slice(0, 8).map((event) => {
                 const lane = activityLane(event.event_type);
                 return (
-                  <li key={event.id} className="py-2.5 first:pt-0 last:pb-0">
+                  <motion.li key={event.id} variants={staggerItem} className="py-2.5 first:pt-0 last:pb-0">
                     <div className="flex items-baseline gap-2">
                       <span
                         className={cn(
@@ -288,14 +311,15 @@ export default function OverviewPage() {
                     <p className="tabular mt-0.5 text-xs text-content-muted">
                       {formatDateTime(event.created_at)}
                     </p>
-                  </li>
+                  </motion.li>
                 );
               })}
-            </ul>
+            </motion.ul>
           )}
         </Card>
-      </div>
+      </motion.div>
 
+      <motion.div variants={staggerItem}>
       <ChatPanel
         scope="overview"
         inputId="overview-chat"
@@ -305,7 +329,9 @@ export default function OverviewPage() {
           "How does an invoice get marked paid?",
         ]}
       />
+      </motion.div>
 
+      <motion.div variants={staggerItem}>
       <Card className="p-6">
         <h2 className="text-lg font-medium tracking-tight text-content">
           One sentence becomes an invoice
@@ -325,6 +351,7 @@ export default function OverviewPage() {
           <ArrowRight aria-hidden className="h-4 w-4" />
         </Link>
       </Card>
-    </div>
+      </motion.div>
+    </motion.div>
   );
 }

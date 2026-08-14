@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
+import { AnimatePresence, motion } from "framer-motion";
 import { CircleCheck, Loader2, MessageCircle, ShieldCheck, TriangleAlert } from "lucide-react";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Button, CopyButton, inputStyles } from "@/components/ui";
@@ -193,19 +194,24 @@ export default function PayPage({ params }: { params: { token: string } }) {
 
               {messages.length > 0 && (
                 <ul className="mt-4 space-y-2.5">
-                  {messages.map((m) => (
-                    <li
-                      key={m.id}
-                      className={cn(
-                        "max-w-[85%] rounded px-3 py-2 text-sm",
-                        m.sender === "customer"
-                          ? "ml-auto bg-accent/10 text-content"
-                          : "bg-surface-sunken text-content-secondary"
-                      )}
-                    >
-                      {m.message}
-                    </li>
-                  ))}
+                  <AnimatePresence initial={false}>
+                    {messages.map((m) => (
+                      <motion.li
+                        key={m.id}
+                        initial={{ opacity: 0, y: 8, scale: 0.98 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
+                        className={cn(
+                          "max-w-[85%] rounded px-3 py-2 text-sm",
+                          m.sender === "customer"
+                            ? "ml-auto bg-accent/10 text-content"
+                            : "bg-surface-sunken text-content-secondary"
+                        )}
+                      >
+                        {m.message}
+                      </motion.li>
+                    ))}
+                  </AnimatePresence>
                 </ul>
               )}
 

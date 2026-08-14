@@ -13,6 +13,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "date-fns": "^4.4.0",
+    "framer-motion": "^13.1.0",
     "lucide-react": "^1.31.0",
     "next": "14.2.35",
     "qrcode.react": "^4.2.0",
