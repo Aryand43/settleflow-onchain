@@ -32,17 +32,24 @@ cd apps/web
 npm run dev
 ```
 
-Open http://localhost:3000 and sign in as **demo@settleflow.app /
-settleflow**. Leave the browser on the dashboard.
+Open http://localhost:3000 — that's the **marketing page** now. Sign in at
+`/login` as **demo@settleflow.app / settleflow**, which lands you on
+`/dashboard`. Leave the browser there.
+
+(Prefer Docker? `docker compose up --build -d` then
+`docker compose run --rm api python scripts/seed.py` replaces terminals 3 and 4
+entirely. The containers read the root `.env`, not `apps/api/.env`.)
 
 Sanity checks before judges walk up:
 
 - Click an existing invoice's **Simulate payment** once — it should flip to
   Paid with a real transaction hash within ~2 seconds. If it errors, Anvil or
   the deploy step didn't run; redo Terminals 1–2.
-- If you're demoing real email, confirm `SMTP_PASSWORD` is set in
-  `apps/api/.env` and seed with `DEMO_CUSTOMER_EMAIL=you@gmail.com` so the
-  seeded customers point at an inbox you can open on stage.
+- Email delivery is live (`settleflowhackathon@gmail.com`). Confirm with
+  `curl -s -H "X-API-Key: dev-key" http://localhost:8000/api/email/status` —
+  it should say `configured: true`. Seed with
+  `DEMO_CUSTOMER_EMAIL=you@gmail.com` so the seeded customers point at an inbox
+  you can open on stage.
 
 Then re-run the reset above so the numbers are clean.
 
@@ -62,9 +69,9 @@ the payment side, once on the collections side.
 
 **Optional opener — hand them the keyboard**
 If a judge wants to try it themselves, let them sign up at **/signup**. They
-get an empty dashboard of their own: their own customers, their own invoices
-numbered from INV-0001, and no sight of anyone else's data. That lands the
-multi-tenant story better than any slide.
+land on their own empty customer directory, the sidebar header swaps to their
+name and email, and their invoices number from INV-0001 with no sight of anyone
+else's data. That lands the multi-tenant story better than any slide.
 
 **0:00 — Dashboard**
 "SettleFlow is automated stablecoin invoice collection for Singapore
@@ -107,12 +114,23 @@ the good ones still import.
 Go to Overview. Pick a pending invoice, click **Simulate time** a couple of
 times to push it past due. "Now watch the agent, not me, handle the
 follow-up." Click **Run collections agent**. "It just reviewed every overdue
-invoice and drafted a reminder — friendly at day one, firmer as it ages,
-final notice past a week. No one clicked send. Click it again a few more
-times on the same invoice to watch the tone escalate from friendly to firm."
+invoice and wrote the reminder itself — friendly at day one, firmer as it ages,
+final notice past a week. Nobody wrote these, and nobody clicked send." Click it
+again a few more times on the same invoice to watch the tone escalate from
+friendly to firm.
+
+**Then open the inbox and show the email that just landed.** It really sent, and
+the activity timeline says **sent to …** to match. This is the strongest thirty
+seconds available to you — a real email, to a real address, that no human wrote.
+
+If delivery is ever unconfigured, the buttons relabel themselves to **Generate
+reminder** and the timeline says **drafted**. In that case say drafted, not
+sent, and open the HTML from `apps/api/email_previews/` instead. A judge reading
+the timeline will notice if you claim otherwise.
 
 **1:45 — Wrap**
 "Two things are real here, not simulated: the settlement is a genuine
 on-chain transaction, and the collections follow-up runs itself. The model
-touches neither — it only ever reads and drafts. That's the product: an AI
+touches neither — it reads, it writes, it negotiates time, and that is the whole
+list. That's the product: an AI
 that manages collections without ever being trusted with the money."

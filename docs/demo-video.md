@@ -75,26 +75,34 @@ DEMO_CUSTOMER_EMAIL=settleflowhackathon@gmail.com .venv/bin/python scripts/seed.
 .venv/bin/python scripts/check_db.py # 1 user, 3 customers, 3 invoices, 6 events
 ```
 
-This recreates the demo account, **demo@settleflow.app / settleflow**. Sign in
-before you start recording — the first frame should not be a login form you are
-typing into.
+This recreates the demo account, **demo@settleflow.app / settleflow**.
+
+`http://localhost:3000` is now the **marketing page**, not the dashboard. Sign
+in at `/login` first and let it land you on `/dashboard`, then start recording —
+the first frame should not be a login form you are typing into.
 
 Re-run this between takes. Clean numbers matter — a dashboard reading
 `INV-0011` after six rehearsals looks like a test environment, because it is.
 
-### 2b. Decide whether email is real in this take
+### 2b. Confirm email is really sending
 
-A blank `SMTP_PASSWORD` means reminders are written to
-`apps/api/email_previews/` and the activity timeline says **drafted**. With a
-Gmail App Password set, they are really sent and it says **sent to …**.
+**Email delivery is configured** — `settleflowhackathon@gmail.com` with a Gmail
+App Password. Reminders genuinely arrive, the activity timeline says **sent
+to …**, and the buttons read **Send invoice email** / **Send reminder**.
 
-Both are demoable. What you must not do is narrate "sent" over a timeline that
-reads "drafted" — it is on screen, and it is the kind of thing a judge
-screenshots. Check which mode you are in before you roll:
+If that password is ever cleared, the app falls back to writing
+`apps/api/email_previews/*.html`, the timeline says **drafted**, and the buttons
+relabel themselves **Generate invoice email** / **Generate reminder**. Both
+states are demoable — what you must not do is narrate "sent" over a timeline
+that reads "drafted". Check which mode you are in before you roll:
 
 ```bash
-grep SMTP_PASSWORD apps/api/.env
+curl -s -H "X-API-Key: dev-key" http://localhost:8000/api/email/status
+# {"configured":true,"from_address":"settleflowhackathon@gmail.com"}
 ```
+
+Running in Docker? The containers read the **root** `.env`, not
+`apps/api/.env`. If that endpoint says `false`, that is why.
 
 ### 3. Never let these on camera
 
@@ -108,6 +116,20 @@ grep SMTP_PASSWORD apps/api/.env
 Close the API terminal or park it on a scrolled-past screen. If you show the
 Supabase dashboard (see the optional shot below), the project ref in the URL is
 fine; the password is not.
+
+### 3b. Or skip the terminals entirely
+
+The whole stack runs in Docker now, which is one fewer thing to go wrong on
+someone else's laptop:
+
+```bash
+docker compose up --build -d
+docker compose run --rm api python scripts/seed.py
+```
+
+The chain profile works the same way — see the README. The catch is that the
+containers read the **root** `.env`, so chain and SMTP settings have to live
+there, not in `apps/api/.env`.
 
 ### 4. Recording setup
 
@@ -262,9 +284,11 @@ so the two match.
 ## Optional shot: a judge signs up
 
 If the video is going somewhere people can act on it, a ten-second cut of
-**/signup → empty dashboard** is worth including: it shows the product is
-multi-tenant, not a single hardcoded workspace. New account, no invoices, its
-own numbering starting at INV-0001.
+**/signup** is worth including: it shows the product is multi-tenant, not a
+single hardcoded workspace. Signup drops you on an empty **/customers** — the
+first thing a new freelancer actually needs — and the sidebar header swaps to
+their own name and email. Their invoices number from INV-0001, independently of
+anyone else's.
 
 Record it as a separate take and cut it in after the landing page, or drop it —
 it's the first thing to lose if you're over time.
