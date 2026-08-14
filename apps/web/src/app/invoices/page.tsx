@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { motion } from "framer-motion";
 import { ChevronRight, FileText, SearchX, WifiOff } from "lucide-react";
 import { ChatPanel } from "@/components/ChatPanel";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -14,6 +15,7 @@ import {
   inputStyles,
 } from "@/components/ui";
 import { api, type Invoice } from "@/lib/api";
+import { staggerContainer, staggerItem } from "@/lib/motion";
 import { cn, daysUntil, formatCurrency, formatDate, formatDueRelative } from "@/lib/utils";
 
 // Mirrors InvoiceStatus in the backend model, so every stored status is filterable.
@@ -204,25 +206,28 @@ export default function InvoicesPage() {
         <>
           {/* Mobile: the six-column table used to overflow into a clipped container. */}
           <Card className="divide-y divide-line md:hidden">
-            {filtered.map((inv) => (
-              <Link
-                key={inv.id}
-                href={`/invoices/${inv.id}`}
-                className="flex items-start justify-between gap-3 px-4 py-3.5 transition-colors duration-150 hover:bg-surface-raised"
-              >
-                <div className="min-w-0">
-                  <p className="font-medium text-content">{inv.invoice_number}</p>
-                  <p className="truncate text-sm text-content-secondary">{inv.customer_name}</p>
-                  <p className="tabular mt-1 text-sm text-content">
-                    {formatCurrency(inv.amount, inv.currency)}
-                  </p>
-                  <p className="mt-0.5 text-xs text-content-muted">
-                    <DueCell invoice={inv} />
-                  </p>
-                </div>
-                <StatusBadge status={inv.status} />
-              </Link>
-            ))}
+            <motion.div variants={staggerContainer} initial="hidden" animate="show">
+              {filtered.map((inv) => (
+                <motion.div key={inv.id} variants={staggerItem}>
+                  <Link
+                    href={`/invoices/${inv.id}`}
+                    className="flex items-start justify-between gap-3 px-4 py-3.5 transition-colors duration-150 hover:bg-surface-raised"
+                  >
+                    <div className="min-w-0">
+                      <p className="font-medium text-content">{inv.invoice_number}</p>
+                      <p className="truncate text-sm text-content-secondary">{inv.customer_name}</p>
+                      <p className="tabular mt-1 text-sm text-content">
+                        {formatCurrency(inv.amount, inv.currency)}
+                      </p>
+                      <p className="mt-0.5 text-xs text-content-muted">
+                        <DueCell invoice={inv} />
+                      </p>
+                    </div>
+                    <StatusBadge status={inv.status} />
+                  </Link>
+                </motion.div>
+              ))}
+            </motion.div>
           </Card>
 
           <Card className="hidden overflow-hidden md:block">
@@ -239,9 +244,18 @@ export default function InvoicesPage() {
                   </th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-line">
+              <motion.tbody
+                variants={staggerContainer}
+                initial="hidden"
+                animate="show"
+                className="divide-y divide-line"
+              >
                 {filtered.map((inv) => (
-                  <tr key={inv.id} className="group transition-colors duration-150 hover:bg-surface-raised">
+                  <motion.tr
+                    key={inv.id}
+                    variants={staggerItem}
+                    className="group transition-colors duration-150 hover:bg-surface-raised"
+                  >
                     <td className="px-4 py-3">
                       <Link
                         href={`/invoices/${inv.id}`}
@@ -263,12 +277,12 @@ export default function InvoicesPage() {
                     <td className="px-4 py-3 text-right">
                       <ChevronRight
                         aria-hidden
-                        className="h-4 w-4 text-content-muted transition-colors duration-150 group-hover:text-content"
+                        className="h-4 w-4 text-content-muted transition-transform duration-150 group-hover:translate-x-0.5 group-hover:text-content"
                       />
                     </td>
-                  </tr>
+                  </motion.tr>
                 ))}
-              </tbody>
+              </motion.tbody>
             </table>
           </Card>
         </>
