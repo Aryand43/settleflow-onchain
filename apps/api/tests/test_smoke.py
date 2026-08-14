@@ -256,6 +256,45 @@ def test_simulate_payment_idempotent(client, headers, monkeypatch):
     assert "Already paid" in res.json()["message"]
 
 
+def test_payer_can_pay_from_their_own_link_without_credentials(client, headers, monkeypatch):
+    """The payer surface carries no auth header — the payment token is the only
+    credential a customer has."""
+    monkeypatch.setenv("DEMO_MODE", "true")
+    get_settings.cache_clear()
+
+    create = client.post(
+        "/api/invoices",
+        json={
+            "customer_id": 1,
+            "amount": 50,
+            "currency": "USDC",
+            "description": "paid from the link",
+            "due_date": str(date.today() + timedelta(days=3)),
+        },
+        headers=headers,
+    )
+    token = create.json()["payment_token"]
+
+    res = client.post(f"/api/invoices/by-token/{token}/pay")
+    assert res.status_code == 200
+    assert res.json()["payment_page"]["status"] == "paid"
+
+    # Second click on a link the payer left open shouldn't double-charge.
+    again = client.post(f"/api/invoices/by-token/{token}/pay")
+    assert again.status_code == 200
+    assert "Already paid" in again.json()["message"]
+
+    # And the merchant sees it as settled.
+    invoice = client.get(f"/api/invoices/{create.json()['id']}", headers=headers)
+    assert invoice.json()["status"] == "paid"
+    assert invoice.json()["blockchain_tx_hash"]
+
+
+def test_pay_by_token_rejects_an_unknown_token(client):
+    res = client.post("/api/invoices/by-token/not-a-real-token/pay")
+    assert res.status_code == 404
+
+
 def test_simulate_time_marks_overdue(client, headers):
     create = client.post(
         "/api/invoices",
@@ -557,3 +596,63 @@ def test_reminder_reports_delivery_state(client, headers):
     assert res.status_code == 200
     assert res.json()["delivered"] is False
     assert "nothing was sent" in res.json()["message"]
+
+
+def test_payer_can_settle_from_their_own_link(client, headers):
+    """The payer page settles by token, with no merchant session."""
+    create = client.post(
+        "/api/invoices",
+        json={
+            "customer_id": 1,
+            "amount": 60,
+            "currency": "USDC",
+            "description": "pay by token",
+            "due_date": str(date.today() + timedelta(days=7)),
+        },
+        headers=headers,
+    )
+    token = create.json()["payment_token"]
+
+    res = client.post(f"/api/invoices/by-token/{token}/pay")
+    assert res.status_code == 200
+    assert res.json()["payment_page"]["status"] == "paid"
+
+    # Idempotent: clicking twice doesn't double-charge or error.
+    again = client.post(f"/api/invoices/by-token/{token}/pay")
+    assert again.status_code == 200
+    assert again.json()["message"] == "Already paid"
+
+
+def test_pay_by_token_rejects_unknown_token(client):
+    res = client.post("/api/invoices/by-token/not-a-real-token/pay")
+    assert res.status_code == 404
+
+
+def test_settle_never_reports_success_on_an_unpaid_row(client, headers, monkeypatch):
+    """`AlreadyPaid` on-chain is a stale row, not a failure.
+
+    A payment whose transaction lands while the response is lost leaves the
+    chain settled and the row pending. Paying again used to revert with
+    AlreadyPaid and surface as 'the payment transaction failed on-chain', which
+    is the opposite of the truth — the money had already moved.
+    """
+    create = client.post(
+        "/api/invoices",
+        json={
+            "customer_id": 1,
+            "amount": 20,
+            "currency": "USDC",
+            "description": "reconcile",
+            "due_date": str(date.today() + timedelta(days=7)),
+        },
+        headers=headers,
+    )
+    token = create.json()["payment_token"]
+
+    first = client.post(f"/api/invoices/by-token/{token}/pay")
+    assert first.status_code == 200
+    assert first.json()["payment_page"]["status"] == "paid"
+
+    # Whatever the outcome, the response must never say paid while the row is not.
+    page = client.get(f"/api/invoices/by-token/{token}/payment-page").json()
+    assert page["status"] == "paid"

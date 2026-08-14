@@ -10,7 +10,6 @@ import {
   FastForward,
   MessageCircle,
   Send,
-  Wallet,
 } from "lucide-react";
 import { StatusBadge } from "@/components/StatusBadge";
 import {
@@ -288,7 +287,8 @@ export default function InvoiceDetailPage({ params }: { params: { id: string } }
                   Demo controls
                 </p>
                 <p className="mt-1 text-xs text-content-muted">
-                  Simulated locally. No transaction is broadcast.
+                  Simulated locally. Paying happens on the customer&rsquo;s payment
+                  link, not here.
                 </p>
                 <div className="mt-3 flex flex-wrap gap-2">
                   <Button
@@ -300,16 +300,6 @@ export default function InvoiceDetailPage({ params }: { params: { id: string } }
                   >
                     <FastForward aria-hidden className="h-4 w-4" />
                     Simulate time
-                  </Button>
-                  <Button
-                    variant="demo"
-                    size="sm"
-                    onClick={() => runAction("pay", () => api.simulatePayment(id))}
-                    loading={actionLoading === "pay"}
-                    disabled={!!actionLoading || isPaid}
-                  >
-                    <Wallet aria-hidden className="h-4 w-4" />
-                    Simulate payment
                   </Button>
                 </div>
               </div>

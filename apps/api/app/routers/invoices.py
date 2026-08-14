@@ -18,9 +18,16 @@ from app.schemas import (
     ParsedCommand,
     PaymentPageResponse,
 )
+from app.models.activity import EventType
 from app.services.blockchain import chain_ready, pay_invoice_onchain, scan_blockchain_events
 from app.services.email import get_email_service
-from app.services.invoice import create_invoice, invoice_to_response, mark_overdue, mark_paid
+from app.services.invoice import (
+    create_invoice,
+    invoice_to_response,
+    log_activity,
+    mark_overdue,
+    mark_paid,
+)
 from app.services.negotiation import handle_customer_message
 from app.services.parser import parse_command
 from app.services.reminders import process_overdue_after_simulate, send_reminder
@@ -109,6 +116,61 @@ def create_invoice_endpoint(
     return invoice_to_response(invoice)
 
 
+def _settle_now(db: Session, invoice: Invoice) -> None:
+    """Pays an invoice the way the demo stands in for a customer's wallet.
+
+    With a chain configured this is a genuine payment — mint, approve,
+    `payInvoice` — and the status only moves once the scan sees the
+    `InvoicePaid` event. Without one it falls back to a placeholder hash so the
+    product is still demoable with nothing but the API running."""
+    settings = get_settings()
+    if chain_ready(settings) and settings.demo_payer_private_key and invoice.on_chain_invoice_id:
+        try:
+            pay_invoice_onchain(invoice)
+        except Exception as exc:
+            # A chain failure used to escape as an unhandled 500, which carries
+            # no CORS headers — so the browser reported "Failed to fetch" and
+            # hid the real cause. Surface it as a normal error response.
+            log_activity(
+                db,
+                invoice_id=invoice.id,
+                event_type=EventType.payment_failed.value,
+                message=f"On-chain payment failed for {invoice.invoice_number}: {exc}",
+            )
+            raise HTTPException(
+                status_code=502,
+                detail=f"The payment transaction failed on-chain: {exc}. "
+                "Is Anvil running and are the contracts deployed?",
+            ) from exc
+
+        # The row only moves to paid off the back of an observed InvoicePaid
+        # event, so the scan is what actually settles it.
+        scan_blockchain_events(db)
+        db.refresh(invoice)
+
+        if invoice.status != InvoiceStatus.paid.value:
+            # The transaction went through but the row didn't move. Saying
+            # "Payment complete" here is how an invoice ends up payable twice —
+            # the second attempt then reverts with AlreadyPaid.
+            log_activity(
+                db,
+                invoice_id=invoice.id,
+                event_type=EventType.payment_failed.value,
+                message=(
+                    f"Paid on-chain but {invoice.invoice_number} did not settle — "
+                    "the InvoicePaid event was not matched"
+                ),
+            )
+            raise HTTPException(
+                status_code=502,
+                detail="The payment went through on-chain but this invoice didn't "
+                "update. Run a blockchain scan to reconcile it.",
+            )
+    else:
+        mark_paid(db, invoice, f"0x{'a' * 64}", simulated=True)
+    db.refresh(invoice)
+
+
 # --- Public payer surface: no auth, addressed only by an unguessable token ---
 
 
@@ -148,6 +210,38 @@ def send_payment_page_message(
     if not body.message.strip():
         raise HTTPException(status_code=400, detail="Message cannot be empty")
     return handle_customer_message(db, invoice, body.message.strip())
+
+
+@router.post("/by-token/{payment_token}/pay")
+def pay_by_token(payment_token: str, db: Session = Depends(get_db)):
+    """Lets the payer settle from their own link, which is where paying
+    actually belongs — the merchant clicking 'pay' on their own dashboard was
+    always a stand-in for this.
+
+    Public on purpose: the payment token is the only credential a customer
+    has, exactly like the message endpoint above. It can only ever move an
+    invoice to paid, and only the one the token names."""
+    settings = get_settings()
+    if not settings.demo_mode:
+        raise HTTPException(status_code=403, detail="Demo payment is only available in DEMO_MODE")
+
+    invoice = (
+        db.query(Invoice)
+        .options(joinedload(Invoice.customer), joinedload(Invoice.owner))
+        .filter(Invoice.payment_token == payment_token)
+        .first()
+    )
+    if not invoice:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+
+    if invoice.status == InvoiceStatus.paid.value:
+        return {"message": "Already paid", "payment_page": _payment_page(invoice)}
+
+    if invoice.status == InvoiceStatus.cancelled.value:
+        raise HTTPException(status_code=400, detail="This invoice was cancelled")
+
+    _settle_now(db, invoice)
+    return {"message": "Payment complete", "payment_page": _payment_page(invoice)}
 
 
 # --- Merchant surface: everything below is scoped to the signed-in account ---
@@ -215,6 +309,8 @@ def send_invoice(
 def simulate_payment(
     invoice_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)
 ):
+    """Kept as a merchant-side escape hatch for when the payer window isn't
+    open — the demo pays from the payment link now. Same code path."""
     settings = get_settings()
     if not settings.demo_mode:
         raise HTTPException(status_code=403, detail="Simulate payment only available in DEMO_MODE")
@@ -223,16 +319,7 @@ def simulate_payment(
     if invoice.status == InvoiceStatus.paid.value:
         return {"message": "Already paid", "invoice": invoice_to_response(invoice)}
 
-    if chain_ready(settings) and settings.demo_payer_private_key and invoice.on_chain_invoice_id:
-        # Real chain configured (Anvil devnet by default): pay for real and let
-        # the scan pick up the InvoicePaid event, same as production would.
-        pay_invoice_onchain(invoice)
-        scan_blockchain_events(db)
-    else:
-        fake_hash = f"0x{'a' * 64}"
-        mark_paid(db, invoice, fake_hash, simulated=True)
-
-    db.refresh(invoice)
+    _settle_now(db, invoice)
     return {"message": "Payment simulated", "invoice": invoice_to_response(invoice)}
 
 

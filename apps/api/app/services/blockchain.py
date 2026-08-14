@@ -30,6 +30,20 @@ PAYMENT_ROUTER_ABI = [
         "outputs": [],
         "stateMutability": "nonpayable",
     },
+    {
+        "type": "function",
+        "name": "getPaymentRequest",
+        "inputs": [{"name": "invoiceId", "type": "bytes32"}],
+        "outputs": [
+            {"name": "merchant", "type": "address"},
+            {"name": "token", "type": "address"},
+            {"name": "amount", "type": "uint256"},
+            {"name": "expiry", "type": "uint256"},
+            {"name": "paid", "type": "bool"},
+            {"name": "exists", "type": "bool"},
+        ],
+        "stateMutability": "view",
+    },
 ]
 
 ERC20_MINT_ABI = [
@@ -105,13 +119,54 @@ def register_payment_request(invoice: Invoice) -> str | None:
     return _send(w3, account, fn)
 
 
-def pay_invoice_onchain(invoice: Invoice) -> str:
+def payment_request_state(invoice: Invoice) -> tuple[bool, bool]:
+    """(exists, paid) for this invoice as the router sees it."""
+    settings = get_settings()
+    if not chain_ready(settings) or not invoice.on_chain_invoice_id:
+        return (False, False)
+
+    from web3 import Web3
+
+    w3 = Web3(Web3.HTTPProvider(settings.rpc_url))
+    router = w3.eth.contract(
+        address=Web3.to_checksum_address(settings.payment_contract_address),
+        abi=PAYMENT_ROUTER_ABI,
+    )
+    request = router.functions.getPaymentRequest(_bytes32(invoice.on_chain_invoice_id)).call()
+    return (bool(request[5]), bool(request[4]))
+
+
+def payment_request_exists(invoice: Invoice) -> bool:
+    """Whether the router already knows about this invoice."""
+    return payment_request_state(invoice)[0]
+
+
+def pay_invoice_onchain(invoice: Invoice) -> str | None:
     """Acts as a demo customer wallet: mints itself the owed USDC, approves the
     router, and pays the invoice. Produces a real transaction hash on whatever
     chain RPC_URL points at (a local Anvil devnet by default)."""
     settings = get_settings()
     if not chain_ready(settings) or not settings.demo_payer_private_key:
         raise RuntimeError("Blockchain not configured for on-chain demo payment")
+
+    exists, already_paid = payment_request_state(invoice)
+
+    if already_paid:
+        # The chain has settled this invoice; only our row is behind — a payment
+        # whose transaction landed while the response was lost, or a database
+        # reset over a chain that kept its state. Paying again reverts with
+        # AlreadyPaid, so don't. The caller's event scan reconciles the row from
+        # the InvoicePaid event, which is the correct direction: the chain is
+        # the source of truth for paid, in both directions.
+        return None
+
+    # Register on demand if the router has never seen this invoice. Two ways
+    # that happens, both routine: scripts/seed.py writes invoices straight to
+    # the database without touching the chain, and restarting Anvil wipes every
+    # request while the database keeps the rows. Without this, paying either one
+    # reverts with InvalidInvoice and surfaces as an opaque 500.
+    if not exists:
+        register_payment_request(invoice)
 
     from eth_account import Account
     from web3 import Web3

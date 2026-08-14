@@ -38,7 +38,8 @@ Open http://localhost:3000 — that's the **marketing page** now. Sign in at
 
 (Prefer Docker? `docker compose up --build -d` then
 `docker compose run --rm api python scripts/seed.py` replaces terminals 3 and 4
-entirely. The containers read the root `.env`, not `apps/api/.env`.)
+entirely. The api container reads `apps/api/.env` — the same file `uvicorn`
+uses — so there is only one place to configure anything.)
 
 Sanity checks before judges walk up:
 

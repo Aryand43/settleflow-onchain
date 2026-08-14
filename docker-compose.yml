@@ -16,39 +16,19 @@ services:
       dockerfile: Dockerfile
     ports:
       - "8000:8000"
-    environment:
-      # Defaults keep `docker compose up` working with no .env at all. Anything
-      # set in .env wins.
-      DEMO_MODE: ${DEMO_MODE:-true}
-      DATABASE_URL: ${DATABASE_URL:-sqlite:////app/data/settleflow.db}
-      API_KEY: ${API_KEY:-dev-key}
-      JWT_SECRET: ${JWT_SECRET:-dev-secret-change-me}
-      # The browser resolves this, so it stays localhost even inside compose —
-      # it ends up in the payment links customers click.
-      WEB_BASE_URL: ${WEB_BASE_URL:-http://localhost:3000}
-      MERCHANT_NAME: ${MERCHANT_NAME:-SettleFlow Demo Merchant}
-      MERCHANT_WALLET: ${MERCHANT_WALLET:-0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266}
-
-      LLM_API_KEY: ${LLM_API_KEY:-}
-      LLM_MODEL: ${LLM_MODEL:-gpt-4.1-mini}
-      LLM_BASE_URL: ${LLM_BASE_URL:-https://api.openai.com/v1}
-
-      SMTP_HOST: ${SMTP_HOST:-}
-      SMTP_PORT: ${SMTP_PORT:-587}
-      SMTP_STARTTLS: ${SMTP_STARTTLS:-true}
-      SMTP_USERNAME: ${SMTP_USERNAME:-}
-      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
-      EMAIL_FROM: ${EMAIL_FROM:-}
-      EMAIL_FROM_NAME: ${EMAIL_FROM_NAME:-SettleFlow}
-
-      # host.docker.internal reaches an Anvil running on your Mac/Windows host.
-      # With --profile chain it's the anvil service below instead.
-      CHAIN_ID: ${CHAIN_ID:-}
-      RPC_URL: ${RPC_URL:-}
-      PAYMENT_CONTRACT_ADDRESS: ${PAYMENT_CONTRACT_ADDRESS:-}
-      USDC_CONTRACT_ADDRESS: ${USDC_CONTRACT_ADDRESS:-}
-      MERCHANT_PRIVATE_KEY: ${MERCHANT_PRIVATE_KEY:-}
-      DEMO_PAYER_PRIVATE_KEY: ${DEMO_PAYER_PRIVATE_KEY:-}
+    # One source of truth: the container reads the same file `uvicorn` does.
+    #
+    # This used to be a long `environment:` block of ${VAR:-default} entries fed
+    # from the root .env, which meant every key you set in apps/api/.env was
+    # silently replaced by an empty default inside the container —
+    # `environment:` beats `env_file`. That's how LLM_API_KEY and DATABASE_URL
+    # went missing while working fine outside Docker.
+    #
+    # Defaults now come from the Dockerfile's ENV, which env_file overrides when
+    # present, so a fresh clone with no .env still boots.
+    env_file:
+      - path: ./apps/api/.env
+        required: false
     volumes:
       # SQLite lives here. Irrelevant when DATABASE_URL points at Supabase, but
       # it means the demo survives a restart either way.

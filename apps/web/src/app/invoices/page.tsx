@@ -264,11 +264,22 @@ export default function InvoicesPage() {
                     <td className="px-4 py-3">
                       <StatusBadge status={inv.status} />
                     </td>
+                    {/*
+                     * This chevron reads as a "view" affordance, so it has to
+                     * be one. It was a bare icon: the only clickable thing in
+                     * the row was the invoice number, and clicking the arrow —
+                     * or anywhere else on the row — did nothing.
+                     */}
                     <td className="px-4 py-3 text-right">
-                      <ChevronRight
-                        aria-hidden
-                        className="h-4 w-4 text-content-muted transition-colors duration-150 group-hover:text-content"
-                      />
+                      <Link
+                        href={`/invoices/${inv.id}`}
+                        className="inline-flex rounded p-1 text-content-muted transition-colors duration-150 hover:bg-surface-raised hover:text-content group-hover:text-content"
+                      >
+                        <ChevronRight aria-hidden className="h-4 w-4" />
+                        <span className="sr-only">
+                          View invoice {inv.invoice_number}
+                        </span>
+                      </Link>
                     </td>
                   </tr>
                 ))}

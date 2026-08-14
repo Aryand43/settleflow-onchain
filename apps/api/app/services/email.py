@@ -2,6 +2,7 @@ import html
 import re
 import smtplib
 import ssl
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from email.message import EmailMessage
@@ -149,6 +150,12 @@ class PreviewEmailService:
     """Writes the rendered email to disk instead of sending it. The default,
     and what you get whenever SMTP_HOST is unset."""
 
+    @contextmanager
+    def session(self):
+        """No-op, so callers can use one shape regardless of which service
+        they got back from get_email_service()."""
+        yield self
+
     def send_invoice_email(self, *, to_email: str, **kwargs) -> EmailResult:
         html_content = _render_invoice(**kwargs)
         path = _write_preview("invoice", kwargs["invoice_number"], html_content)
@@ -181,6 +188,50 @@ class SmtpEmailService:
     occur.
     """
 
+    def __init__(self) -> None:
+        # Held open only inside session(); None means "connect per message".
+        self._smtp: Optional[smtplib.SMTP] = None
+
+    @contextmanager
+    def session(self):
+        """Holds one connection open across many messages.
+
+        Connecting to Gmail costs ~4 seconds — TCP, STARTTLS, then the login
+        round trip — and that was being paid per email. The collections agent
+        sends one per overdue invoice, so a run over five invoices spent twenty
+        seconds logging in five times. Inside this block it logs in once.
+        """
+        settings = get_settings()
+        smtp = None
+        try:
+            smtp = self._connect(settings)
+            self._smtp = smtp
+            yield self
+        finally:
+            self._smtp = None
+            if smtp is not None:
+                try:
+                    smtp.quit()
+                except Exception:
+                    # Already closed, or the server hung up. Nothing to salvage
+                    # and nothing worth failing the caller's work over.
+                    pass
+
+    def _connect(self, settings) -> smtplib.SMTP:
+        if settings.smtp_starttls:
+            smtp = smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=20)
+            smtp.starttls(context=ssl.create_default_context())
+        else:
+            smtp = smtplib.SMTP_SSL(
+                settings.smtp_host,
+                settings.smtp_port,
+                timeout=20,
+                context=ssl.create_default_context(),
+            )
+        if settings.smtp_username:
+            smtp.login(settings.smtp_username, settings.smtp_password or "")
+        return smtp
+
     def _send(self, *, to_email: str, subject: str, html_content: str) -> Optional[str]:
         """Returns None on success, or the error string on failure."""
         settings = get_settings()
@@ -194,22 +245,14 @@ class SmtpEmailService:
         message.add_alternative(html_content, subtype="html")
 
         try:
-            if settings.smtp_starttls:
-                with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=20) as smtp:
-                    smtp.starttls(context=ssl.create_default_context())
-                    if settings.smtp_username:
-                        smtp.login(settings.smtp_username, settings.smtp_password or "")
-                    smtp.send_message(message)
+            if self._smtp is not None:
+                self._smtp.send_message(message)
             else:
-                with smtplib.SMTP_SSL(
-                    settings.smtp_host,
-                    settings.smtp_port,
-                    timeout=20,
-                    context=ssl.create_default_context(),
-                ) as smtp:
-                    if settings.smtp_username:
-                        smtp.login(settings.smtp_username, settings.smtp_password or "")
+                smtp = self._connect(settings)
+                try:
                     smtp.send_message(message)
+                finally:
+                    smtp.quit()
             return None
         except (smtplib.SMTPException, OSError) as exc:
             return f"{type(exc).__name__}: {exc}"

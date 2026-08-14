@@ -16,10 +16,19 @@ this project already.
 
 ### 1. The chain must be running, or the best shot in the video doesn't exist
 
-`apps/api/.env` currently has every chain variable commented out. In that state
-**Simulate payment** silently falls back to a fake `0xaaaa…` hash — the demo
-still "works", which is exactly what makes it dangerous to discover while
-recording. Uncomment and fill in:
+**The chain is now configured** in `apps/api/.env` — Anvil's deterministic
+addresses, which stay the same across restarts. You just have to start the
+chain and redeploy each time Docker's anvil container is recreated:
+
+```bash
+docker compose --profile chain up -d anvil
+docker compose --profile chain run --rm contracts
+docker compose up -d api          # picks up a fresh chain
+```
+
+If those variables are ever commented out again, **Simulate payment** silently
+falls back to a fake `0xaaaa…` hash — the demo still "works", which is exactly
+what makes it dangerous to discover while recording. The manual path:
 
 ```bash
 # Terminal 1 — leave running
@@ -55,7 +64,12 @@ should report `chain_configured: true`, and a test payment should return a
 
 ```bash
 curl -s http://localhost:8000/api/invoices/by-token/<token>/payment-page | grep chain_configured
+# "chain_configured":true
 ```
+
+Note `RPC_URL=http://anvil:8545` — the compose service name. Running `uvicorn`
+on your laptop instead, it has to be `http://127.0.0.1:8545`; that is the one
+setting that differs between the two ways of running.
 
 ### 2. Reset the database to clean seed state
 
@@ -101,8 +115,9 @@ curl -s -H "X-API-Key: dev-key" http://localhost:8000/api/email/status
 # {"configured":true,"from_address":"settleflowhackathon@gmail.com"}
 ```
 
-Running in Docker? The containers read the **root** `.env`, not
-`apps/api/.env`. If that endpoint says `false`, that is why.
+This is the same in Docker — the api container reads `apps/api/.env`
+directly, so there is only one file to get right. Confirm with
+`docker compose config | grep SMTP_HOST` if the endpoint says `false`.
 
 ### 3. Never let these on camera
 
@@ -127,9 +142,14 @@ docker compose up --build -d
 docker compose run --rm api python scripts/seed.py
 ```
 
-The chain profile works the same way — see the README. The catch is that the
-containers read the **root** `.env`, so chain and SMTP settings have to live
-there, not in `apps/api/.env`.
+The chain profile works the same way — see the README. The api container reads
+`apps/api/.env`, the same file `uvicorn` uses, so there is one place to
+configure everything. (The root `.env` only carries the web image's build args,
+because `NEXT_PUBLIC_*` is compiled into the bundle rather than read at
+runtime.)
+
+One habit worth keeping: **`docker compose up --build`**, or `make up`. Plain
+`up` reuses the last built image, and the web bundle really can go stale.
 
 ### 4. Recording setup
 

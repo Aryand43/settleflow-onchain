@@ -311,23 +311,23 @@ non-root.
 
 ### Configuration
 
-Docker Compose reads the **root `.env`**. That's a different file from
-`apps/api/.env` and `apps/web/.env.local`, which are for running outside
-Docker — **the containers never read those.**
+**All API configuration lives in `apps/api/.env`** — the api container reads
+that same file via `env_file`, so `uvicorn` and Docker behave identically.
+`DATABASE_URL`, `LLM_API_KEY`, `SMTP_*` and the chain variables all belong
+there and nowhere else.
 
-This catches people out: you set `SMTP_PASSWORD` in `apps/api/.env`, email works
-when you run `uvicorn` directly, and then the container silently writes preview
-files instead. Copy anything you need into the root `.env`:
+The root `.env` is only for the web image's build args, because
+`NEXT_PUBLIC_*` is compiled into the JS bundle rather than read at runtime.
+
+Sanity-check what the container actually got:
 
 ```bash
-docker compose run --rm api python -c "\
-from app.services.email import email_delivery_configured; \
-print('email configured in container:', email_delivery_configured())"
+docker compose config | grep -E "DATABASE_URL|LLM_API_KEY|SMTP_HOST"
 ```
 
-Everything is optional. Without a root `.env` you get SQLite on a named volume,
-preview-file email, and no chain, which is enough to demo the whole product
-except real settlement.
+Everything is optional. With no `apps/api/.env` at all you get SQLite on a
+named volume, preview-file email, and no chain — enough to demo the whole
+product except real settlement, straight from a fresh clone.
 
 | Set this | To get |
 |----------|--------|
@@ -514,11 +514,15 @@ Notes:
 
 **Reminders say "drafted", not "sent"** — `SMTP_PASSWORD` is blank, so the app is writing preview files instead of sending. See [Email delivery](#email-delivery). Check what the app thinks with `GET /api/email/status`; the invoice page also shows a note above the send buttons when delivery isn't configured.
 
-**In Docker: email works locally but not in the container** — the containers read the **root** `.env`, not `apps/api/.env`. Copy `SMTP_*` and `EMAIL_FROM` across and `docker compose up -d api`.
+**In Docker: `Network is unreachable` connecting to Supabase** — you're on the direct `db.<ref>.supabase.co` host, which is IPv6-only. Your laptop has IPv6; the container's bridge network does not. Switch `DATABASE_URL` to the **Session pooler** host (`aws-0-<region>.pooler.supabase.com`, username `postgres.<ref>`), which is IPv4.
+
+**In Docker: config set in `apps/api/.env` seems ignored** — it shouldn't be; the container reads that file directly. Confirm with `docker compose config | grep LLM_API_KEY`, and remember `docker compose up` reuses the last built image — use `--build` (or `make up`) after changing anything that's baked in at build time.
 
 **Docker: dashboard loads but every request fails** — `NEXT_PUBLIC_API_URL` was baked in wrong at build time. It must be the URL your browser uses (`http://localhost:8000`), not a compose service name. Fix `.env` and rebuild: `docker compose build web`.
 
 **Docker: `dependency failed to start: container ... is unhealthy`** — the API crashed on boot. `docker compose logs api` has the traceback; a bad `DATABASE_URL` is the usual cause.
+
+**"Failed to fetch" on the payer page** — the API returned an unhandled 500, which carries no CORS headers, so the browser hides the real error. `docker compose logs api` has the traceback. The usual cause was a contract revert; payment now registers the invoice on-chain on demand and returns a readable 502 instead.
 
 **Docker: Simulate payment still returns `0xaaaa…`** — the chain vars aren't reaching the container. Check `docker compose config` renders them, and that `RPC_URL` is `http://anvil:8545` rather than `localhost`.
 

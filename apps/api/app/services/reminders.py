@@ -1,6 +1,6 @@
 from datetime import date
 
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.models.activity import ActivityEvent, EventType
 from app.models.invoice import Invoice, InvoiceStatus
@@ -27,16 +27,31 @@ def _reminder_already_sent(db: Session, invoice_id: int, rule: str) -> bool:
     return any(e.metadata_json and e.metadata_json.get("rule") == rule for e in events)
 
 
-def send_reminder(db: Session, invoice: Invoice, rule: str = "manual") -> Invoice:
-    if invoice.status == InvoiceStatus.paid.value:
-        return invoice
+def send_reminder(
+    db: Session,
+    invoice: Invoice,
+    rule: str = "manual",
+    email_service=None,
+    skip_duplicate_check: bool = False,
+):
+    """Sends one reminder and records what actually happened.
 
-    if _reminder_already_sent(db, invoice.id, rule):
-        return invoice
+    Returns the EmailResult, or None when nothing was sent — the collections
+    agent needs the delivery outcome and used to re-query the activity table
+    for it, which over a network-attached database meant an extra round trip
+    per invoice.
+
+    `email_service` lets a caller pass a service with an open SMTP connection
+    so a batch doesn't re-authenticate per message."""
+    if invoice.status == InvoiceStatus.paid.value:
+        return None
+
+    if not skip_duplicate_check and _reminder_already_sent(db, invoice.id, rule):
+        return None
 
     days_overdue = max(0, (date.today() - invoice.due_date).days)
     tier = _reminder_tier(days_overdue)
-    email_service = get_email_service()
+    email_service = email_service or get_email_service()
     result = email_service.send_reminder_email(
         to_email=invoice.customer.email,
         customer_name=invoice.customer.name,
@@ -49,8 +64,6 @@ def send_reminder(db: Session, invoice: Invoice, rule: str = "manual") -> Invoic
     )
 
     invoice.reminder_count += 1
-    db.commit()
-    db.refresh(invoice)
 
     # The timeline says what actually happened. "Sent" only appears when a mail
     # server accepted the message; otherwise it reads as drafted, and a delivery
@@ -72,8 +85,11 @@ def send_reminder(db: Session, invoice: Invoice, rule: str = "manual") -> Invoic
             f"({days_overdue}d overdue)"
         ),
         metadata=metadata,
+        commit=False,
     )
-    return invoice
+    # One commit covers the counter bump and the timeline row together.
+    db.commit()
+    return result
 
 
 def process_overdue_after_simulate(db: Session, invoice: Invoice) -> None:
@@ -93,37 +109,59 @@ def run_collections_agent(db: Session, owner_id: int) -> dict:
     mark an invoice paid or move funds, same boundary as the parser."""
     overdue_invoices = (
         db.query(Invoice)
+        .options(joinedload(Invoice.customer))
         .filter(Invoice.owner_id == owner_id, Invoice.status == InvoiceStatus.overdue.value)
         .all()
     )
+    if not overdue_invoices:
+        return {"invoices_reviewed": 0, "reminders_sent": []}
 
-    reviewed = 0
-    sent = []
+    # Every rule already used, fetched once. This was a query per invoice, run
+    # twice over (here and again inside send_reminder) — six round trips per
+    # invoice to a database in another region.
+    invoice_ids = [inv.id for inv in overdue_invoices]
+    already_sent: set[tuple[int, str]] = set()
+    for event in (
+        db.query(ActivityEvent)
+        .filter(
+            ActivityEvent.invoice_id.in_(invoice_ids),
+            ActivityEvent.event_type == EventType.reminder_sent.value,
+        )
+        .all()
+    ):
+        rule_used = (event.metadata_json or {}).get("rule")
+        if rule_used:
+            already_sent.add((event.invoice_id, rule_used))
+
+    due = []
     for invoice in overdue_invoices:
-        reviewed += 1
         days_overdue = max(0, (date.today() - invoice.due_date).days)
         tier = _reminder_tier(days_overdue)
         rule = f"agent_{tier}"
+        if (invoice.id, rule) not in already_sent:
+            due.append((invoice, days_overdue, tier, rule))
 
-        if _reminder_already_sent(db, invoice.id, rule):
-            continue
+    sent = []
+    if due:
+        # One SMTP login for the whole batch instead of one per reminder.
+        with get_email_service().session() as mailer:
+            for invoice, days_overdue, tier, rule in due:
+                result = send_reminder(
+                    db,
+                    invoice,
+                    rule=rule,
+                    email_service=mailer,
+                    skip_duplicate_check=True,
+                )
+                sent.append(
+                    {
+                        "invoice_id": invoice.id,
+                        "invoice_number": invoice.invoice_number,
+                        "tier": tier,
+                        "days_overdue": days_overdue,
+                        "to": invoice.customer.email,
+                        "delivered": bool(result and result.delivered),
+                    }
+                )
 
-        send_reminder(db, invoice, rule=rule)
-        delivery = (
-            db.query(ActivityEvent)
-            .filter_by(invoice_id=invoice.id, event_type=EventType.reminder_sent.value)
-            .order_by(ActivityEvent.created_at.desc())
-            .first()
-        )
-        sent.append(
-            {
-                "invoice_id": invoice.id,
-                "invoice_number": invoice.invoice_number,
-                "tier": tier,
-                "days_overdue": days_overdue,
-                "to": invoice.customer.email,
-                "delivered": bool(delivery and (delivery.metadata_json or {}).get("delivered")),
-            }
-        )
-
-    return {"invoices_reviewed": reviewed, "reminders_sent": sent}
+    return {"invoices_reviewed": len(overdue_invoices), "reminders_sent": sent}

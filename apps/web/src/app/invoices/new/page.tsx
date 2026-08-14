@@ -20,6 +20,25 @@ import { cn, formatCurrency, formatDate } from "@/lib/utils";
 
 const DEMO_COMMAND = "Collect 100 USDC from Daniel Tan for the website redesign, due in 7 days.";
 
+/*
+ * Finds every customer a parsed name could mean.
+ *
+ * An exact name always wins outright, even against a substring that happens to
+ * sort earlier. Otherwise this returns ALL partial matches rather than the
+ * first one: "Marcus" with both a Marcus Koh and a Marcus Watney in the
+ * directory used to silently invoice whichever sorted first, which is exactly
+ * the kind of mistake you only notice after the client gets the email.
+ */
+function matchCustomers(name: string, list: Customer[]): Customer[] {
+  const q = name.trim().toLowerCase();
+  if (!q) return [];
+
+  const exact = list.filter((c) => c.name.toLowerCase() === q);
+  if (exact.length) return exact;
+
+  return list.filter((c) => c.name.toLowerCase().includes(q));
+}
+
 function Detail({ label, value, muted }: { label: string; value: string; muted?: boolean }) {
   return (
     <div>
@@ -37,6 +56,7 @@ export default function NewInvoicePage() {
   const [command, setCommand] = useState(DEMO_COMMAND);
   const [parsed, setParsed] = useState<ParsedCommand | null>(null);
   const [customer, setCustomer] = useState<Customer | null>(null);
+  const [candidates, setCandidates] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -53,17 +73,17 @@ export default function NewInvoicePage() {
     setError(null);
     setParsed(null);
     setCustomer(null);
+    setCandidates([]);
     setQuickAddEmail("");
     try {
       const result = await api.parseCommand(command);
       setParsed(result);
       const customers = await api.customers();
-      const match = customers.find(
-        (c) =>
-          c.name.toLowerCase() === result.customer_name.toLowerCase() ||
-          c.name.toLowerCase().includes(result.customer_name.toLowerCase())
-      );
-      setCustomer(match || null);
+      const matches = matchCustomers(result.customer_name, customers);
+      setCandidates(matches);
+      // Only auto-select when there is exactly one answer. Two matches is a
+      // question for the merchant, not a coin flip.
+      setCustomer(matches.length === 1 ? matches[0] : null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't parse that command. Try rephrasing it.");
     } finally {
@@ -88,6 +108,7 @@ export default function NewInvoicePage() {
         email: quickAddEmail.trim(),
       });
       setCustomer(created);
+      setCandidates([created]);
       setQuickAddEmail("");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not add that customer");
@@ -206,7 +227,54 @@ export default function NewInvoicePage() {
                 Matched <span className="font-medium">{customer.name}</span>
                 {customer.company && ` · ${customer.company}`}
                 <span className="block opacity-90">{customer.email}</span>
+                {candidates.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => setCustomer(null)}
+                    className="mt-1 block underline underline-offset-2 opacity-90 hover:opacity-100"
+                  >
+                    Not this one? Pick again
+                  </button>
+                )}
               </span>
+            </div>
+          ) : candidates.length > 1 ? (
+            /*
+             * More than one customer fits the name. Guessing here means the
+             * invoice, the payment link, and every reminder go to the wrong
+             * client — so it asks instead.
+             */
+            <div className="rounded border border-pending/40 bg-pending-tint/60 p-3">
+              <div className="flex items-start gap-2.5 text-sm text-pending">
+                <TriangleAlert aria-hidden className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>
+                  {candidates.length} customers match &ldquo;{parsed.customer_name}&rdquo;. Which
+                  one are you invoicing?
+                </span>
+              </div>
+
+              <ul className="mt-3 space-y-1.5">
+                {candidates.map((c) => (
+                  <li key={c.id}>
+                    <button
+                      type="button"
+                      onClick={() => setCustomer(c)}
+                      className="flex w-full items-center justify-between gap-3 rounded border border-line bg-surface px-3 py-2 text-left text-sm transition-colors duration-150 hover:border-content-muted hover:bg-surface-raised"
+                    >
+                      <span className="min-w-0">
+                        <span className="block font-medium text-content">
+                          {c.name}
+                          {c.company && (
+                            <span className="font-normal text-content-muted"> · {c.company}</span>
+                          )}
+                        </span>
+                        <span className="block truncate text-xs text-content-muted">{c.email}</span>
+                      </span>
+                      <span className="shrink-0 text-xs text-content-muted">Select</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
             </div>
           ) : (
             <div className="rounded border border-pending/40 bg-pending-tint/60 p-3">

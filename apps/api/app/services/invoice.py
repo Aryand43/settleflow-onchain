@@ -120,7 +120,11 @@ def log_activity(
     event_type: str,
     message: str,
     metadata: Optional[Dict[str, Any]] = None,
+    commit: bool = True,
 ) -> ActivityEvent:
+    """`commit=False` lets a caller fold this into a transaction it is already
+    going to commit. Against a network-attached database each commit is a round
+    trip, and the reminder path used to make two back to back."""
     event = ActivityEvent(
         invoice_id=invoice_id,
         event_type=event_type,
@@ -128,8 +132,11 @@ def log_activity(
         metadata_json=metadata,
     )
     db.add(event)
-    db.commit()
-    db.refresh(event)
+    if commit:
+        db.commit()
+        db.refresh(event)
+    else:
+        db.flush()
     return event
 
 

@@ -296,6 +296,12 @@ export const api = {
     ),
   paymentPage: (token: string) =>
     apiFetch<PaymentPage>(`/api/invoices/by-token/${token}/payment-page`, {}, false),
+  payByToken: (token: string) =>
+    apiFetch<{ message: string; payment_page: PaymentPage }>(
+      `/api/invoices/by-token/${token}/pay`,
+      { method: "POST" },
+      false
+    ),
   runCollectionsAgent: () =>
     apiFetch<CollectionsAgentResult>("/api/agent/run-collections", { method: "POST" }),
   paymentPageMessages: (token: string) =>

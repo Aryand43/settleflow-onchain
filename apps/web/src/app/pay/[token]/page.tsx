@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
-import { CircleCheck, Clock, Loader2, MessageCircle, TriangleAlert } from "lucide-react";
+import { CircleCheck, Clock, Loader2, MessageCircle, TriangleAlert, Wallet } from "lucide-react";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Button, CopyButton, inputStyles } from "@/components/ui";
 import { api, type NegotiationMessage, type PaymentPage } from "@/lib/api";
@@ -15,6 +15,8 @@ export default function PayPage({ params }: { params: { token: string } }) {
   const [messages, setMessages] = useState<NegotiationMessage[]>([]);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
+  const [paying, setPaying] = useState(false);
+  const [payError, setPayError] = useState<string | null>(null);
 
   useEffect(() => {
     api
@@ -42,6 +44,23 @@ export default function PayPage({ params }: { params: { token: string } }) {
       // Best-effort: leave the draft in place so the customer can retry.
     } finally {
       setSending(false);
+    }
+  }
+
+  async function handlePay() {
+    setPaying(true);
+    setPayError(null);
+    try {
+      // On-chain settlement is three sequential transactions, so this holds
+      // for a couple of seconds. The button's loading state carries it.
+      const result = await api.payByToken(params.token);
+      setData(result.payment_page);
+    } catch (e) {
+      setPayError(
+        e instanceof Error ? e.message : "That didn't go through. Try again in a moment."
+      );
+    } finally {
+      setPaying(false);
     }
   }
 
@@ -140,9 +159,11 @@ export default function PayPage({ params }: { params: { token: string } }) {
             ) : (
               <>
                 {/*
-                 * The QR and link ARE the payment mechanism, so they lead here
-                 * rather than sitting under a button. No wallet-connect flow is
-                 * wired yet, and a CTA that opens an alert would be a lie.
+                 * The QR and link ARE the real payment mechanism — no
+                 * wallet-connect flow is wired, so they stay the primary path.
+                 * The button below is explicitly the demo's stand-in wallet,
+                 * labelled as such; a CTA that pretended to be the real thing
+                 * would be a lie.
                  */}
                 <p className="text-sm font-medium text-content">
                   Pay in {data.currency} from your wallet
@@ -157,6 +178,31 @@ export default function PayPage({ params }: { params: { token: string } }) {
                   </div>
                   <CopyButton value={data.payment_url} label="Copy payment link" />
                 </div>
+
+                {data.demo_mode && (
+                  <div className="mt-6 border-t border-dashed border-line-strong pt-5">
+                    <p className="text-xs uppercase tracking-wide text-content-muted">
+                      Demo shortcut
+                    </p>
+                    <p className="mt-1 text-xs text-content-muted">
+                      {data.chain_configured
+                        ? "Pays this invoice from the demo wallet, so you don't need a funded wallet to try it. It signs a real transaction on the testnet."
+                        : "Marks this invoice paid so you can try the flow. No transaction is broadcast."}
+                    </p>
+                    {payError && <p className="mt-2 text-xs text-overdue">{payError}</p>}
+                    <Button
+                      variant="demo"
+                      size="sm"
+                      className="mt-3 w-full"
+                      onClick={handlePay}
+                      loading={paying}
+                      disabled={paying}
+                    >
+                      <Wallet aria-hidden className="h-4 w-4" />
+                      Pay {formatCurrency(data.amount, data.currency)} with the demo wallet
+                    </Button>
+                  </div>
+                )}
 
                 <div className="mt-6 flex items-start gap-2.5 border-t border-line pt-5 text-xs text-content-muted">
                   <Clock aria-hidden className="mt-px h-3.5 w-3.5 shrink-0" />
