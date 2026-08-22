@@ -118,6 +118,22 @@ export type ActivityEvent = {
   created_at: string;
 };
 
+export type AuditSource = "user" | "system" | "blockchain" | "ai";
+
+export type InvoiceAuditEvent = {
+  id: number;
+  event_type: string;
+  source: AuditSource;
+  event_data: Record<string, unknown> | null;
+  evidence: Record<string, unknown> | null;
+  created_at: string;
+};
+
+export type InvoiceAuditResponse = {
+  invoice_id: number;
+  events: InvoiceAuditEvent[];
+};
+
 export type NegotiationMessage = {
   id: number;
   invoice_id: number;
@@ -259,6 +275,7 @@ export const api = {
   invoices: () => apiFetch<Invoice[]>("/api/invoices"),
   invoice: (id: number) => apiFetch<Invoice>(`/api/invoices/${id}`),
   invoiceActivity: (id: number) => apiFetch<ActivityEvent[]>(`/api/invoices/${id}/activity`),
+  invoiceAudit: (id: number) => apiFetch<InvoiceAuditResponse>(`/api/invoices/${id}/audit`),
   parseCommand: (command: string) =>
     apiFetch<ParsedCommand>("/api/invoices/parse-command", {
       method: "POST",

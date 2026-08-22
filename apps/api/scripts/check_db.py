@@ -49,7 +49,7 @@ def main() -> int:
 
     db = SessionLocal()
     try:
-        for table in ("users", "customers", "invoices", "activity_events", "negotiation_messages"):
+        for table in ("users", "customers", "invoices", "activity_events", "invoice_audit_events", "negotiation_messages"):
             if table in tables:
                 count = db.execute(text(f"SELECT count(*) FROM {table}")).scalar()
                 print(f"  {table:<22} {count} row(s)")

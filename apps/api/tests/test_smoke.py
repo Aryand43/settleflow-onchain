@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 from app.database import Base, engine, SessionLocal, init_db
 from app.main import app
 from app.models.activity import ActivityEvent
+from app.models.audit import InvoiceAuditEvent
 from app.models.customer import Customer
 from app.models.invoice import Invoice, InvoiceStatus
 from app.services.auth import create_user
@@ -123,6 +124,33 @@ def test_create_invoice_sequential_number(client, headers):
     assert res.json()["invoice_number"] == "INV-0001"
 
 
+def test_invoice_audit_trail_is_append_only_and_owner_scoped(client, headers):
+    res = client.post(
+        "/api/invoices",
+        json={
+            "customer_id": 1,
+            "amount": 100,
+            "currency": "USDC",
+            "description": "website redesign",
+            "due_date": str(date.today() + timedelta(days=7)),
+        },
+        headers=headers,
+    )
+    assert res.status_code == 201
+    invoice_id = res.json()["id"]
+
+    audit = client.get(f"/api/invoices/{invoice_id}/audit", headers=headers)
+    assert audit.status_code == 200
+    body = audit.json()
+    assert body["invoice_id"] == invoice_id
+    types = [event["event_type"] for event in body["events"]]
+    assert types == ["invoice_parsed", "invoice_confirmed", "invoice_created"]
+    assert all(event["id"] for event in body["events"])
+
+    assert client.get(f"/api/invoices/{invoice_id}/audit").status_code == 401
+    assert client.get("/api/invoices/999999/audit", headers=headers).status_code == 404
+
+
 def test_invoice_numbers_are_not_reused_after_delete(client, headers):
     """The counter hands out each number once. The old count()-based scheme
     would reissue INV-0001 here, which also meant reissuing its
@@ -139,10 +167,11 @@ def test_invoice_numbers_are_not_reused_after_delete(client, headers):
 
     db = SessionLocal()
     try:
-        # Activity rows go first: Postgres enforces the foreign key, where
+        # Activity and audit rows go first: Postgres enforces the foreign key, where
         # SQLite (pragma foreign_keys off by default) would let the orphan slide.
         invoice_id = first.json()["id"]
         db.query(ActivityEvent).filter(ActivityEvent.invoice_id == invoice_id).delete()
+        db.query(InvoiceAuditEvent).filter(InvoiceAuditEvent.invoice_id == invoice_id).delete()
         db.query(Invoice).filter(Invoice.id == invoice_id).delete()
         db.commit()
     finally:
@@ -436,6 +465,7 @@ def test_accounts_cannot_see_each_others_data(client):
     # confirm the invoice exists.
     assert client.get(f"/api/invoices/{bob_invoice['id']}", headers=alice).status_code == 404
     assert client.get(f"/api/invoices/{bob_invoice['id']}/activity", headers=alice).status_code == 404
+    assert client.get(f"/api/invoices/{bob_invoice['id']}/audit", headers=alice).status_code == 404
     assert client.post(f"/api/invoices/{bob_invoice['id']}/simulate-payment", headers=alice).status_code == 404
     assert client.post(f"/api/invoices/{bob_invoice['id']}/send-reminder", headers=alice).status_code == 404
 

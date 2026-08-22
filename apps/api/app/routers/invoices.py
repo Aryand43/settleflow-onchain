@@ -30,6 +30,7 @@ from app.services.invoice import (
 )
 from app.services.negotiation import handle_customer_message
 from app.services.parser import parse_command
+from app.services.audit_service import log_invoice_event
 from app.services.reminders import process_overdue_after_simulate, send_reminder
 
 router = APIRouter(prefix="/invoices")
@@ -123,6 +124,17 @@ def _settle_now(db: Session, invoice: Invoice) -> None:
     `payInvoice` — and the status only moves once the scan sees the
     `InvoicePaid` event. Without one it falls back to a placeholder hash so the
     product is still demoable with nothing but the API running."""
+    log_invoice_event(
+        db,
+        invoice.id,
+        "payment_submitted",
+        "user",
+        event_data={
+            "amount": invoice.amount,
+            "currency": invoice.currency,
+            "on_chain_invoice_id": invoice.on_chain_invoice_id,
+        },
+    )
     settings = get_settings()
     if chain_ready(settings) and settings.demo_payer_private_key and invoice.on_chain_invoice_id:
         try:
@@ -184,6 +196,13 @@ def payment_page_by_token(payment_token: str, db: Session = Depends(get_db)):
     )
     if not invoice:
         raise HTTPException(status_code=404, detail="Invoice not found")
+    log_invoice_event(
+        db,
+        invoice.id,
+        "payment_page_opened",
+        "user",
+        event_data={"payment_token": invoice.payment_token, "status": invoice.status},
+    )
     return _payment_page(invoice)
 
 

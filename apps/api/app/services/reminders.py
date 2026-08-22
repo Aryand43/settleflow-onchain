@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.models.activity import ActivityEvent, EventType
 from app.models.invoice import Invoice, InvoiceStatus
+from app.services.audit_service import log_invoice_event
 from app.services.email import get_email_service
 from app.services.invoice import log_activity
 
@@ -89,6 +90,19 @@ def send_reminder(
     )
     # One commit covers the counter bump and the timeline row together.
     db.commit()
+    log_invoice_event(
+        db,
+        invoice.id,
+        "reminder_generated",
+        "system",
+        event_data={
+            "rule": rule,
+            "tier": tier,
+            "reminder_count": invoice.reminder_count,
+            "delivered": result.delivered,
+        },
+        evidence={"email_preview": result.preview_path} if result.preview_path else None,
+    )
     return result
 
 

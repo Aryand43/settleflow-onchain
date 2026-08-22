@@ -12,6 +12,7 @@ import {
   Send,
 } from "lucide-react";
 import { StatusBadge } from "@/components/StatusBadge";
+import { AuditTimeline } from "@/components/invoice/AuditTimeline";
 import {
   Alert,
   Button,
@@ -344,6 +345,11 @@ export default function InvoiceDetailPage({ params }: { params: { id: string } }
               </ul>
             </Card>
           )}
+
+          <AuditTimeline
+            invoiceId={id}
+            refreshKey={`${invoice.status}:${invoice.reminder_count}:${invoice.paid_at ?? ""}:${invoice.blockchain_tx_hash ?? ""}`}
+          />
 
           <Card className="p-6">
             <CardTitle>Activity timeline</CardTitle>

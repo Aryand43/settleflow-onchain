@@ -18,6 +18,7 @@ from app.models.invoice import (
 )
 from app.models.user import User
 from app.schemas import InvoiceCreate, InvoiceResponse
+from app.services.audit_service import log_invoice_event
 
 
 USDC_DECIMALS = 6
@@ -175,6 +176,36 @@ def create_invoice(db: Session, data: InvoiceCreate, owner: User) -> Invoice:
         metadata={"invoice_number": invoice_number},
     )
 
+    parsed_data = {
+        "invoice_number": invoice.invoice_number,
+        "merchant_id": owner.id,
+        "customer_id": invoice.customer_id,
+        "amount": invoice.amount,
+        "currency": invoice.currency,
+        "description": invoice.description,
+        "due_date": str(invoice.due_date),
+    }
+    log_invoice_event(db, invoice.id, "invoice_parsed", "system", event_data=parsed_data)
+    log_invoice_event(
+        db,
+        invoice.id,
+        "invoice_confirmed",
+        "user",
+        event_data={"merchant_id": owner.id, "customer_id": invoice.customer_id},
+    )
+    log_invoice_event(
+        db,
+        invoice.id,
+        "invoice_created",
+        "system",
+        event_data={
+            "invoice_number": invoice.invoice_number,
+            "amount": invoice.amount,
+            "currency": invoice.currency,
+            "on_chain_invoice_id": invoice.on_chain_invoice_id,
+        },
+    )
+
     from app.services.blockchain import chain_ready, register_payment_request
 
     if chain_ready(settings):
@@ -214,6 +245,21 @@ def mark_paid(db: Session, invoice: Invoice, tx_hash: str, simulated: bool = Fal
         event_type=EventType.payment_confirmed.value,
         message=f"Payment confirmed for {invoice.invoice_number}",
         metadata={"tx_hash": tx_hash},
+    )
+
+    source = "system" if simulated else "blockchain"
+    evidence = {"tx_hash": tx_hash, "simulated": simulated}
+    event_data = {"amount": invoice.amount, "currency": invoice.currency}
+    log_invoice_event(
+        db, invoice.id, "payment_detected", source, event_data=event_data, evidence=evidence
+    )
+    log_invoice_event(
+        db,
+        invoice.id,
+        "invoice_marked_paid",
+        "system",
+        event_data=event_data,
+        evidence=evidence,
     )
     return invoice
 

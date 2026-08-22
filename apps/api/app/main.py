@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.database import init_db
 from app.routers import (
     agent,
+    audit,
     auth,
     blockchain,
     chat,
@@ -35,6 +36,7 @@ app.include_router(health.router, prefix="/api")
 app.include_router(auth.router, prefix="/api")
 app.include_router(customers.router, prefix="/api")
 app.include_router(invoices.router, prefix="/api")
+app.include_router(audit.router, prefix="/api")
 app.include_router(dashboard.router, prefix="/api")
 app.include_router(blockchain.router, prefix="/api")
 app.include_router(agent.router, prefix="/api")

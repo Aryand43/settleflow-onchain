@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -8,7 +9,9 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.deps import get_current_user
+from app.models.invoice import Invoice
 from app.models.user import User
+from app.services.audit_service import log_invoice_event
 from app.services.chat import answer_query
 from app.services.llm import LlmNotConfigured, LlmRequestError, llm_configured
 
@@ -66,5 +69,21 @@ async def chat(
         )
     except LlmRequestError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    for number in set(re.findall(r"INV-\d+", body.message.upper())):
+        row = (
+            db.query(Invoice)
+            .filter(Invoice.owner_id == user.id, Invoice.invoice_number == number)
+            .first()
+        )
+        if row:
+            log_invoice_event(
+                db,
+                row.id,
+                "ai_query",
+                "ai",
+                event_data={"scope": body.scope, "invoice_number": number},
+                evidence={"prompt_snippet": body.message[:200]},
+            )
 
     return ChatResponse(reply=reply, scope=body.scope)
