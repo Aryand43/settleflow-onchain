@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { WagmiProvider, useAccount, useChainId } from "wagmi";
+import { WagmiProvider, useAccount } from "wagmi";
 import {
   connect,
   readContract,
@@ -80,14 +80,22 @@ function WalletPayInner({
   onPaid,
   config,
 }: Props & { config: NonNullable<ReturnType<typeof configFrom>> }) {
-  const { address, isConnected } = useAccount();
-  const activeChainId = useChainId();
+  /*
+   * `useAccount().chainId` is the *connector's* chain — what the wallet is
+   * actually on. `useChainId()` is not: it reports wagmi's config state, which
+   * with a single-chain config stays pinned to that chain even while the wallet
+   * sits on Ethereum mainnet. Reading it here made wrongChain false on mainnet,
+   * so the Pay button rendered and sent `approve` to the router address on
+   * MAINNET, where it is a meaningless contract and the gas is real money.
+   * MetaMask correctly flagged it as a deceptive request.
+   */
+  const { address, isConnected, chainId: walletChainId } = useAccount();
   const [phase, setPhase] = useState<Phase>("idle");
   const [error, setError] = useState<string | null>(null);
   const [txHash, setTxHash] = useState<string | null>(null);
 
   const busy = phase !== "idle" && phase !== "done";
-  const wrongChain = isConnected && page.chain_id !== null && activeChainId !== page.chain_id;
+  const wrongChain = isConnected && page.chain_id !== null && walletChainId !== page.chain_id;
 
   async function handleConnect() {
     setError(null);
@@ -114,9 +122,24 @@ function WalletPayInner({
   }
 
   async function handlePay() {
-    if (!address || !page.amount_base_units) return;
+    if (!address || !page.amount_base_units || page.chain_id === null) return;
     setError(null);
     setTxHash(null);
+
+    const chainId = page.chain_id;
+
+    // Second layer. The button is gated on wrongChain, but a wallet can change
+    // network between render and click, and a stale `walletChainId` would let a
+    // mainnet transaction through. Switching unconditionally here is cheap: if
+    // the wallet is already on the right chain this is a no-op.
+    try {
+      await switchChain(config, { chainId });
+    } catch {
+      setError(
+        "This has to be signed on the demo network. Approve the network switch in your wallet, then try again."
+      );
+      return;
+    }
 
     const amount = BigInt(page.amount_base_units);
     const router = page.router_address as `0x${string}`;
@@ -137,6 +160,7 @@ function WalletPayInner({
       //    shortfall itself.
       if (page.demo_mode) {
         const balance = (await readContract(config, {
+          chainId,
           address: usdc,
           abi: ERC20_ABI,
           functionName: "balanceOf",
@@ -152,6 +176,7 @@ function WalletPayInner({
       //    approved enough — re-approving costs the customer a pointless
       //    signature and confuses the flow.
       const allowance = (await readContract(config, {
+        chainId,
         address: usdc,
         abi: ERC20_ABI,
         functionName: "allowance",
@@ -160,24 +185,28 @@ function WalletPayInner({
 
       if (allowance < amount) {
         setPhase("approving");
+        // chainId here is the last line of defence: viem validates it against
+        // the wallet's actual network and refuses to sign a mismatch.
         const approveHash = await writeContract(config, {
+          chainId,
           address: usdc,
           abi: ERC20_ABI,
           functionName: "approve",
           args: [router, amount],
         });
-        await waitForTransactionReceipt(config, { hash: approveHash });
+        await waitForTransactionReceipt(config, { chainId, hash: approveHash });
       }
 
       setPhase("paying");
       const payHash = await writeContract(config, {
+        chainId,
         address: router,
         abi: ROUTER_ABI,
         functionName: "payInvoice",
         args: [invoiceId],
       });
       setTxHash(payHash);
-      await waitForTransactionReceipt(config, { hash: payHash });
+      await waitForTransactionReceipt(config, { chainId, hash: payHash });
 
       // 4. Ask the API to reconcile. It rescans InvoicePaid events rather than
       //    taking our word for it, so a lost response here is recoverable by
@@ -204,6 +233,20 @@ function WalletPayInner({
       {isConnected && address && (
         <p className="mt-3 truncate font-mono text-xs text-content-muted">
           {address.slice(0, 6)}…{address.slice(-4)}
+          {walletChainId ? ` · chain ${walletChainId}` : ""}
+        </p>
+      )}
+
+      {/*
+        Named explicitly rather than left implicit. A wallet sitting on mainnet
+        while this page talks about a demo chain is the one state where a
+        mis-signed transaction costs real money, so it gets its own warning
+        instead of only disabling a button.
+      */}
+      {wrongChain && (
+        <p className="mt-3 rounded border border-pending/30 bg-pending-tint/50 px-3 py-2 text-xs text-pending">
+          Your wallet is on chain {walletChainId ?? "unknown"}, but this invoice settles on chain{" "}
+          {page.chain_id}. Switch before paying — nothing will be signed until you do.
         </p>
       )}
 
