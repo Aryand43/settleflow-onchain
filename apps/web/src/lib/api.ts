@@ -146,6 +146,24 @@ export type NegotiationReply = {
   intent: "extension" | "installment" | "generic";
   auto_granted: boolean;
   reply: string;
+  pending_approval: boolean;
+  extension_request_id?: number;
+};
+
+export type ExtensionRequestStatus = "pending" | "approved" | "denied";
+
+export type ExtensionRequest = {
+  id: number;
+  invoice_id: number;
+  invoice_number: string | null;
+  customer_name: string | null;
+  requested_days: number;
+  customer_message: string;
+  status: ExtensionRequestStatus;
+  granted_days: number | null;
+  new_due_date: string | null;
+  created_at: string;
+  resolved_at: string | null;
 };
 
 export type CollectionsAgentResult = {
@@ -276,6 +294,15 @@ export const api = {
   invoice: (id: number) => apiFetch<Invoice>(`/api/invoices/${id}`),
   invoiceActivity: (id: number) => apiFetch<ActivityEvent[]>(`/api/invoices/${id}/activity`),
   invoiceAudit: (id: number) => apiFetch<InvoiceAuditResponse>(`/api/invoices/${id}/audit`),
+  extensionRequests: (status: ExtensionRequestStatus | "all" = "pending") =>
+    apiFetch<ExtensionRequest[]>(`/api/invoices/extension-requests?status=${status}`),
+  invoiceExtensionRequests: (id: number) =>
+    apiFetch<ExtensionRequest[]>(`/api/invoices/${id}/extension-requests`),
+  decideExtensionRequest: (requestId: number, approve: boolean) =>
+    apiFetch<ExtensionRequest>(`/api/invoices/extension-requests/${requestId}/decision`, {
+      method: "POST",
+      body: JSON.stringify({ approve }),
+    }),
   parseCommand: (command: string) =>
     apiFetch<ParsedCommand>("/api/invoices/parse-command", {
       method: "POST",

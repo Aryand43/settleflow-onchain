@@ -1,13 +1,19 @@
 from __future__ import annotations
 
 import re
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from sqlalchemy.orm import Session
 
 from app.models.activity import EventType
 from app.models.invoice import Invoice, InvoiceStatus
-from app.models.negotiation import MessageSender, NegotiationMessage
+from app.models.negotiation import (
+    ExtensionRequest,
+    ExtensionRequestStatus,
+    MessageSender,
+    NegotiationMessage,
+)
+from app.services.audit_service import log_invoice_event
 from app.services.invoice import log_activity
 
 MAX_AUTO_EXTENSION_DAYS = 7
@@ -35,6 +41,22 @@ def _save(db: Session, invoice_id: int, sender: str, message: str) -> Negotiatio
     return entry
 
 
+def _audit_reply(db: Session, invoice: Invoice, intent: str, message: str, reply: str) -> None:
+    """Records an agent reply that changed nothing on the invoice.
+
+    The extension paths write their own, more specific events; this covers the
+    rest, so every customer-facing thing the agent says is in the trail rather
+    than only the replies that moved a due date."""
+    log_invoice_event(
+        db,
+        invoice_id=invoice.id,
+        event_type="negotiation_message",
+        source="ai",
+        event_data={"intent": intent, "agent_reply": reply, "invoice_changed": False},
+        evidence=message,
+    )
+
+
 def handle_customer_message(db: Session, invoice: Invoice, message: str) -> dict:
     """Lets a customer ask for more time or a payment plan, and has the agent
     respond within a hard boundary: it can push a due date back by a small,
@@ -47,7 +69,8 @@ def handle_customer_message(db: Session, invoice: Invoice, message: str) -> dict
     if invoice.status == InvoiceStatus.paid.value:
         reply = "This invoice is already settled — there's nothing outstanding to adjust."
         _save(db, invoice.id, MessageSender.agent.value, reply)
-        return {"intent": "generic", "auto_granted": False, "reply": reply}
+        _audit_reply(db, invoice, "generic", message, reply)
+        return {"intent": "generic", "auto_granted": False, "reply": reply, "pending_approval": False}
 
     intent = _classify_intent(message)
 
@@ -73,15 +96,39 @@ def handle_customer_message(db: Session, invoice: Invoice, message: str) -> dict
                 message=f"Agent auto-granted a {requested_days}-day extension for {invoice.invoice_number}",
                 metadata={"requested_days": requested_days, "new_due_date": invoice.due_date.isoformat()},
             )
+            # The agent moving a due date unasked is exactly what the audit
+            # trail is for — record it with the customer's own words as
+            # evidence, the same as the over-cap path does.
+            log_invoice_event(
+                db,
+                invoice_id=invoice.id,
+                event_type="extension_auto_granted",
+                source="ai",
+                event_data={
+                    "requested_days": requested_days,
+                    "auto_grant_cap_days": MAX_AUTO_EXTENSION_DAYS,
+                    "new_due_date": invoice.due_date.isoformat(),
+                },
+                evidence=message,
+            )
             _save(db, invoice.id, MessageSender.agent.value, reply)
-            return {"intent": intent, "auto_granted": True, "reply": reply}
+            return {"intent": intent, "auto_granted": True, "reply": reply, "pending_approval": False}
+
+        request = _open_extension_request(db, invoice, requested_days, message)
 
         reply = (
             f"That's a bigger extension than I can approve on my own ({requested_days} days). "
-            "I've flagged this for the merchant to review directly — nothing's changed yet."
+            "I've sent it to the merchant for approval — the due date stays as it is until "
+            "they decide, and I'll let you know here either way."
         )
         _save(db, invoice.id, MessageSender.agent.value, reply)
-        return {"intent": intent, "auto_granted": False, "reply": reply}
+        return {
+            "intent": intent,
+            "auto_granted": False,
+            "reply": reply,
+            "pending_approval": True,
+            "extension_request_id": request.id,
+        }
 
     if intent == "installment":
         reply = (
@@ -90,8 +137,139 @@ def handle_customer_message(db: Session, invoice: Invoice, message: str) -> dict
             "directly."
         )
         _save(db, invoice.id, MessageSender.agent.value, reply)
-        return {"intent": intent, "auto_granted": False, "reply": reply}
+        _audit_reply(db, invoice, intent, message, reply)
+        return {"intent": intent, "auto_granted": False, "reply": reply, "pending_approval": False}
 
     reply = "Thanks for the note — I've shared it with the merchant."
     _save(db, invoice.id, MessageSender.agent.value, reply)
-    return {"intent": intent, "auto_granted": False, "reply": reply}
+    _audit_reply(db, invoice, intent, message, reply)
+    return {"intent": intent, "auto_granted": False, "reply": reply, "pending_approval": False}
+
+
+def _open_extension_request(
+    db: Session, invoice: Invoice, requested_days: int, message: str
+) -> ExtensionRequest:
+    """Files an over-cap extension for the merchant to decide on.
+
+    A customer who asks twice replaces their own open request rather than
+    stacking a second one, so the merchant sees one decision per invoice with
+    the latest number on it."""
+    existing = (
+        db.query(ExtensionRequest)
+        .filter(
+            ExtensionRequest.invoice_id == invoice.id,
+            ExtensionRequest.status == ExtensionRequestStatus.pending.value,
+        )
+        .first()
+    )
+    if existing:
+        existing.requested_days = requested_days
+        existing.customer_message = message
+        existing.created_at = datetime.utcnow()
+        request = existing
+    else:
+        request = ExtensionRequest(
+            invoice_id=invoice.id,
+            requested_days=requested_days,
+            customer_message=message,
+        )
+        db.add(request)
+    db.commit()
+    db.refresh(request)
+
+    log_activity(
+        db,
+        invoice_id=invoice.id,
+        event_type=EventType.extension_requested.value,
+        message=(
+            f"Customer requested a {requested_days}-day extension on {invoice.invoice_number} "
+            f"— over the {MAX_AUTO_EXTENSION_DAYS}-day auto-grant cap, awaiting your approval"
+        ),
+        metadata={"requested_days": requested_days, "extension_request_id": request.id},
+    )
+    log_invoice_event(
+        db,
+        invoice_id=invoice.id,
+        event_type="extension_requested",
+        source="ai",
+        event_data={
+            "requested_days": requested_days,
+            "auto_grant_cap_days": MAX_AUTO_EXTENSION_DAYS,
+            "extension_request_id": request.id,
+        },
+        evidence=message,
+    )
+    return request
+
+
+def resolve_extension_request(
+    db: Session, invoice: Invoice, request: ExtensionRequest, approve: bool
+) -> ExtensionRequest:
+    """Applies the merchant's decision. The due date moves only here, and only
+    on approval — a denied request leaves the invoice exactly as it was."""
+    if request.status != ExtensionRequestStatus.pending.value:
+        raise ValueError(f"Extension request is already {request.status}")
+
+    if approve:
+        invoice.due_date = invoice.due_date + timedelta(days=request.requested_days)
+        if invoice.status == InvoiceStatus.overdue.value:
+            invoice.status = InvoiceStatus.pending.value
+        request.status = ExtensionRequestStatus.approved.value
+        request.granted_days = request.requested_days
+        request.new_due_date = invoice.due_date
+    else:
+        request.status = ExtensionRequestStatus.denied.value
+
+    request.resolved_at = datetime.utcnow()
+    db.commit()
+    db.refresh(request)
+    db.refresh(invoice)
+
+    if approve:
+        reply = (
+            f"Good news — the merchant approved your request. The due date is now "
+            f"{invoice.due_date.isoformat()} ({request.granted_days} extra day(s))."
+        )
+        event_type = EventType.extension_approved.value
+        activity_message = (
+            f"Merchant approved a {request.granted_days}-day extension on "
+            f"{invoice.invoice_number} (new due date {invoice.due_date.isoformat()})"
+        )
+    else:
+        reply = (
+            "I heard back from the merchant — they weren't able to approve that extension, "
+            f"so the due date stays {invoice.due_date.isoformat()}. Reply here if you'd like "
+            "to work something else out."
+        )
+        event_type = EventType.extension_denied.value
+        activity_message = (
+            f"Merchant denied a {request.requested_days}-day extension request on "
+            f"{invoice.invoice_number}"
+        )
+
+    log_activity(
+        db,
+        invoice_id=invoice.id,
+        event_type=event_type,
+        message=activity_message,
+        metadata={
+            "requested_days": request.requested_days,
+            "granted_days": request.granted_days,
+            "new_due_date": invoice.due_date.isoformat(),
+            "extension_request_id": request.id,
+        },
+    )
+    log_invoice_event(
+        db,
+        invoice_id=invoice.id,
+        event_type="extension_approved" if approve else "extension_denied",
+        source="user",
+        event_data={
+            "requested_days": request.requested_days,
+            "granted_days": request.granted_days,
+            "new_due_date": invoice.due_date.isoformat(),
+            "extension_request_id": request.id,
+        },
+    )
+    _save(db, invoice.id, MessageSender.agent.value, reply)
+    return request

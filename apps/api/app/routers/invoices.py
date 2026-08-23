@@ -7,9 +7,11 @@ from app.deps import get_current_user
 from app.models.activity import ActivityEvent
 from app.models.customer import Customer
 from app.models.invoice import Invoice, InvoiceStatus
-from app.models.negotiation import NegotiationMessage
+from app.models.negotiation import ExtensionRequest, ExtensionRequestStatus, NegotiationMessage
 from app.models.user import User
 from app.schemas import (
+    ExtensionDecision,
+    ExtensionRequestResponse,
     InvoiceCreate,
     InvoiceResponse,
     NegotiationMessageCreate,
@@ -28,7 +30,7 @@ from app.services.invoice import (
     mark_overdue,
     mark_paid,
 )
-from app.services.negotiation import handle_customer_message
+from app.services.negotiation import handle_customer_message, resolve_extension_request
 from app.services.parser import parse_command
 from app.services.audit_service import log_invoice_event
 from app.services.reminders import process_overdue_after_simulate, send_reminder
@@ -266,6 +268,80 @@ def pay_by_token(payment_token: str, db: Session = Depends(get_db)):
 # --- Merchant surface: everything below is scoped to the signed-in account ---
 
 
+def _extension_response(request: ExtensionRequest) -> ExtensionRequestResponse:
+    response = ExtensionRequestResponse.model_validate(request)
+    invoice = request.invoice
+    if invoice is not None:
+        response.invoice_number = invoice.invoice_number
+        response.customer_name = invoice.customer.name if invoice.customer else None
+    return response
+
+
+@router.get("/extension-requests", response_model=list[ExtensionRequestResponse])
+def list_extension_requests(
+    status: str = ExtensionRequestStatus.pending.value,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """The merchant's approval queue: extensions the agent declined to grant
+    itself, across every invoice this user owns. Defaults to the pending ones,
+    since those are the only rows that need a decision."""
+    query = (
+        db.query(ExtensionRequest)
+        .join(Invoice, ExtensionRequest.invoice_id == Invoice.id)
+        .options(joinedload(ExtensionRequest.invoice).joinedload(Invoice.customer))
+        .filter(Invoice.owner_id == user.id)
+    )
+    if status != "all":
+        if status not in {s.value for s in ExtensionRequestStatus}:
+            raise HTTPException(status_code=400, detail=f"Unknown status: {status}")
+        query = query.filter(ExtensionRequest.status == status)
+
+    requests = query.order_by(ExtensionRequest.created_at.desc()).all()
+    return [_extension_response(r) for r in requests]
+
+
+@router.post("/extension-requests/{request_id}/decision", response_model=ExtensionRequestResponse)
+def decide_extension_request(
+    request_id: int,
+    body: ExtensionDecision,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Approve or deny a pending extension. Approving is the only thing that
+    moves the due date — until then the invoice is untouched."""
+    request = (
+        db.query(ExtensionRequest)
+        .join(Invoice, ExtensionRequest.invoice_id == Invoice.id)
+        .options(joinedload(ExtensionRequest.invoice).joinedload(Invoice.customer))
+        .filter(ExtensionRequest.id == request_id, Invoice.owner_id == user.id)
+        .first()
+    )
+    if not request:
+        raise HTTPException(status_code=404, detail="Extension request not found")
+
+    try:
+        resolve_extension_request(db, request.invoice, request, body.approve)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    return _extension_response(request)
+
+
+@router.get("/{invoice_id}/extension-requests", response_model=list[ExtensionRequestResponse])
+def invoice_extension_requests(
+    invoice_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+):
+    invoice = _owned_invoice(db, invoice_id, user)
+    requests = (
+        db.query(ExtensionRequest)
+        .filter(ExtensionRequest.invoice_id == invoice.id)
+        .order_by(ExtensionRequest.created_at.desc())
+        .all()
+    )
+    return [_extension_response(r) for r in requests]
+
+
 @router.get("/{invoice_id}", response_model=InvoiceResponse)
 def get_invoice(
     invoice_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)
@@ -307,6 +383,21 @@ def send_invoice(
         event_type=EventType.invoice_sent.value,
         message=f"Invoice email {'sent to ' + invoice.customer.email if result.delivered else 'drafted'} for {invoice.invoice_number}",
         metadata=result.as_metadata(),
+    )
+    # Mail leaving for a customer belongs in the trail, the same as the
+    # reminder emails that follow it. `delivered` distinguishes a real send
+    # from a preview written to disk with SMTP unconfigured.
+    log_invoice_event(
+        db,
+        invoice.id,
+        "invoice_sent",
+        "user",
+        event_data={
+            "to_email": invoice.customer.email,
+            "delivered": result.delivered,
+            "error": result.error,
+        },
+        evidence={"email_preview": result.preview_path} if result.preview_path else None,
     )
     if result.delivered:
         message = f"Invoice email sent to {invoice.customer.email}"

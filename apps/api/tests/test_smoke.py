@@ -686,3 +686,242 @@ def test_settle_never_reports_success_on_an_unpaid_row(client, headers, monkeypa
     # Whatever the outcome, the response must never say paid while the row is not.
     page = client.get(f"/api/invoices/by-token/{token}/payment-page").json()
     assert page["status"] == "paid"
+
+
+# --- Over-cap extension requests need the merchant's approval ---
+
+
+def _ask_for_extension(client, token, days):
+    res = client.post(
+        f"/api/invoices/by-token/{token}/messages",
+        json={"message": f"Can I get {days} more days to pay this?"},
+    )
+    assert res.status_code == 200, res.text
+    return res.json()
+
+
+def test_small_extension_is_still_auto_granted(client, headers):
+    customer_id = _add_customer(client, headers, "Auto", "auto-ext@example.com")
+    invoice = _make_invoice(client, headers, customer_id)
+    original_due = invoice["due_date"]
+
+    body = _ask_for_extension(client, invoice["payment_token"], 3)
+    assert body["auto_granted"] is True
+    assert body["pending_approval"] is False
+
+    after = client.get(f"/api/invoices/{invoice['id']}", headers=headers).json()
+    assert after["due_date"] > original_due
+
+    pending = client.get("/api/invoices/extension-requests", headers=headers).json()
+    assert pending == []
+
+
+def test_large_extension_waits_for_merchant_approval(client, headers):
+    customer_id = _add_customer(client, headers, "Big", "big-ext@example.com")
+    invoice = _make_invoice(client, headers, customer_id)
+    original_due = invoice["due_date"]
+
+    body = _ask_for_extension(client, invoice["payment_token"], 30)
+    assert body["auto_granted"] is False
+    assert body["pending_approval"] is True
+
+    # Nothing moved on the invoice itself — the request is inert until decided.
+    after = client.get(f"/api/invoices/{invoice['id']}", headers=headers).json()
+    assert after["due_date"] == original_due
+
+    pending = client.get("/api/invoices/extension-requests", headers=headers).json()
+    assert len(pending) == 1
+    assert pending[0]["requested_days"] == 30
+    assert pending[0]["status"] == "pending"
+    assert pending[0]["invoice_number"] == invoice["invoice_number"]
+
+
+def test_approving_an_extension_moves_the_due_date(client, headers):
+    customer_id = _add_customer(client, headers, "Approve", "approve-ext@example.com")
+    invoice = _make_invoice(client, headers, customer_id)
+    original_due = date.fromisoformat(invoice["due_date"])
+
+    _ask_for_extension(client, invoice["payment_token"], 21)
+    request_id = client.get("/api/invoices/extension-requests", headers=headers).json()[0]["id"]
+
+    res = client.post(
+        f"/api/invoices/extension-requests/{request_id}/decision",
+        json={"approve": True},
+        headers=headers,
+    )
+    assert res.status_code == 200, res.text
+    assert res.json()["status"] == "approved"
+    assert res.json()["granted_days"] == 21
+
+    after = client.get(f"/api/invoices/{invoice['id']}", headers=headers).json()
+    assert date.fromisoformat(after["due_date"]) == original_due + timedelta(days=21)
+
+    # The customer is told, in the thread they asked in.
+    messages = client.get(f"/api/invoices/by-token/{invoice['payment_token']}/messages").json()
+    assert "approved" in messages[-1]["message"].lower()
+    assert messages[-1]["sender"] == "agent"
+
+    # And it drops out of the queue.
+    assert client.get("/api/invoices/extension-requests", headers=headers).json() == []
+
+
+def test_denying_an_extension_leaves_the_invoice_untouched(client, headers):
+    customer_id = _add_customer(client, headers, "Deny", "deny-ext@example.com")
+    invoice = _make_invoice(client, headers, customer_id)
+    original_due = invoice["due_date"]
+
+    _ask_for_extension(client, invoice["payment_token"], 45)
+    request_id = client.get("/api/invoices/extension-requests", headers=headers).json()[0]["id"]
+
+    res = client.post(
+        f"/api/invoices/extension-requests/{request_id}/decision",
+        json={"approve": False},
+        headers=headers,
+    )
+    assert res.status_code == 200, res.text
+    assert res.json()["status"] == "denied"
+
+    after = client.get(f"/api/invoices/{invoice['id']}", headers=headers).json()
+    assert after["due_date"] == original_due
+
+    # A decided request cannot be re-decided.
+    again = client.post(
+        f"/api/invoices/extension-requests/{request_id}/decision",
+        json={"approve": True},
+        headers=headers,
+    )
+    assert again.status_code == 409
+
+
+def test_asking_twice_replaces_the_open_request(client, headers):
+    customer_id = _add_customer(client, headers, "Twice", "twice-ext@example.com")
+    invoice = _make_invoice(client, headers, customer_id)
+
+    _ask_for_extension(client, invoice["payment_token"], 14)
+    _ask_for_extension(client, invoice["payment_token"], 28)
+
+    pending = client.get("/api/invoices/extension-requests", headers=headers).json()
+    assert len(pending) == 1
+    assert pending[0]["requested_days"] == 28
+
+
+def test_extension_requests_are_owner_scoped(client):
+    alice = _signup(client, "alice-ext@example.com")
+    bob = _signup(client, "bob-ext@example.com")
+
+    customer_id = _add_customer(client, alice, "Alice Co", "alice-co-ext@example.com")
+    invoice = _make_invoice(client, alice, customer_id)
+    _ask_for_extension(client, invoice["payment_token"], 30)
+
+    request_id = client.get("/api/invoices/extension-requests", headers=alice).json()[0]["id"]
+
+    assert client.get("/api/invoices/extension-requests", headers=bob).json() == []
+    res = client.post(
+        f"/api/invoices/extension-requests/{request_id}/decision",
+        json={"approve": True},
+        headers=bob,
+    )
+    assert res.status_code == 404
+
+
+def test_extension_lifecycle_lands_in_the_audit_trail(client, headers):
+    customer_id = _add_customer(client, headers, "Audit", "audit-ext@example.com")
+    invoice = _make_invoice(client, headers, customer_id)
+
+    _ask_for_extension(client, invoice["payment_token"], 30)
+    request_id = client.get("/api/invoices/extension-requests", headers=headers).json()[0]["id"]
+    client.post(
+        f"/api/invoices/extension-requests/{request_id}/decision",
+        json={"approve": True},
+        headers=headers,
+    )
+
+    events = client.get(f"/api/invoices/{invoice['id']}/audit", headers=headers).json()["events"]
+    by_type = {e["event_type"]: e for e in events}
+
+    # The ask is attributed to the agent, and carries the customer's own words.
+    assert by_type["extension_requested"]["source"] == "ai"
+    assert "30 more days" in by_type["extension_requested"]["evidence"]["text"]
+    assert by_type["extension_requested"]["event_data"]["requested_days"] == 30
+
+    # The decision is attributed to the human who made it.
+    assert by_type["extension_approved"]["source"] == "user"
+    assert by_type["extension_approved"]["event_data"]["granted_days"] == 30
+
+
+def test_auto_granted_extension_is_also_audited(client, headers):
+    customer_id = _add_customer(client, headers, "AutoAudit", "auto-audit-ext@example.com")
+    invoice = _make_invoice(client, headers, customer_id)
+
+    _ask_for_extension(client, invoice["payment_token"], 3)
+
+    events = client.get(f"/api/invoices/{invoice['id']}/audit", headers=headers).json()["events"]
+    granted = next(e for e in events if e["event_type"] == "extension_auto_granted")
+    assert granted["source"] == "ai"
+    assert granted["event_data"]["requested_days"] == 3
+
+
+def _audit_types(client, headers, invoice_id):
+    events = client.get(f"/api/invoices/{invoice_id}/audit", headers=headers).json()["events"]
+    return {e["event_type"]: e for e in events}
+
+
+def test_sending_an_invoice_is_audited(client, headers):
+    customer_id = _add_customer(client, headers, "Sent", "sent-audit@example.com")
+    invoice = _make_invoice(client, headers, customer_id)
+
+    client.post(f"/api/invoices/{invoice['id']}/send", headers=headers)
+
+    sent = _audit_types(client, headers, invoice["id"])["invoice_sent"]
+    assert sent["source"] == "user"
+    assert sent["event_data"]["to_email"] == "sent-audit@example.com"
+    # SMTP is unconfigured in tests, so this records a preview, not a delivery.
+    assert sent["event_data"]["delivered"] is False
+
+
+def test_going_overdue_is_audited(client, headers):
+    customer_id = _add_customer(client, headers, "Late", "late-audit@example.com")
+    invoice = _make_invoice(client, headers, customer_id)
+
+    client.post(f"/api/invoices/{invoice['id']}/simulate-time", headers=headers)
+
+    overdue = _audit_types(client, headers, invoice["id"])["invoice_overdue"]
+    assert overdue["source"] == "system"
+    assert overdue["event_data"]["was_already_overdue"] is False
+
+    # A repeat click pushes the due date further back; the trail records that
+    # too, rather than only the first transition.
+    client.post(f"/api/invoices/{invoice['id']}/simulate-time", headers=headers)
+    events = client.get(f"/api/invoices/{invoice['id']}/audit", headers=headers).json()["events"]
+    overdue_events = [e for e in events if e["event_type"] == "invoice_overdue"]
+    assert len(overdue_events) == 2
+    assert overdue_events[-1]["event_data"]["was_already_overdue"] is True
+
+
+def test_non_extension_negotiation_is_audited(client, headers):
+    customer_id = _add_customer(client, headers, "Plan", "plan-audit@example.com")
+    invoice = _make_invoice(client, headers, customer_id)
+
+    res = client.post(
+        f"/api/invoices/by-token/{invoice['payment_token']}/messages",
+        json={"message": "Could we split this into two installments?"},
+    )
+    assert res.json()["intent"] == "installment"
+
+    event = _audit_types(client, headers, invoice["id"])["negotiation_message"]
+    assert event["source"] == "ai"
+    assert event["event_data"]["intent"] == "installment"
+    assert event["event_data"]["invoice_changed"] is False
+    assert "installments" in event["evidence"]["text"]
+
+
+def test_extension_paths_do_not_double_log_negotiation_events(client, headers):
+    customer_id = _add_customer(client, headers, "NoDupe", "nodupe-audit@example.com")
+    invoice = _make_invoice(client, headers, customer_id)
+
+    _ask_for_extension(client, invoice["payment_token"], 30)
+
+    events = client.get(f"/api/invoices/{invoice['id']}/audit", headers=headers).json()["events"]
+    # The extension path writes its own specific event and nothing generic.
+    assert [e["event_type"] for e in events if "negotiation" in e["event_type"]] == []
+    assert any(e["event_type"] == "extension_requested" for e in events)

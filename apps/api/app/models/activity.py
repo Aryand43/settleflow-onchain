@@ -20,6 +20,9 @@ class EventType(str, enum.Enum):
     invoice_overdue = "invoice_overdue"
     payment_failed = "payment_failed"
     due_date_extended = "due_date_extended"
+    extension_requested = "extension_requested"
+    extension_approved = "extension_approved"
+    extension_denied = "extension_denied"
 
 
 class ActivityEvent(Base):

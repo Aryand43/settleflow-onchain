@@ -150,6 +150,26 @@ class NegotiationMessageResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class ExtensionRequestResponse(BaseModel):
+    id: int
+    invoice_id: int
+    invoice_number: Optional[str] = None
+    customer_name: Optional[str] = None
+    requested_days: int
+    customer_message: str
+    status: str
+    granted_days: Optional[int] = None
+    new_due_date: Optional[date] = None
+    created_at: datetime
+    resolved_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
+
+
+class ExtensionDecision(BaseModel):
+    approve: bool
+
+
 class DashboardSummary(BaseModel):
     total_collected: float
     total_outstanding: float

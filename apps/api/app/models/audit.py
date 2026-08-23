@@ -19,8 +19,15 @@ class AuditEventType(str, enum.Enum):
     payment_submitted = "payment_submitted"
     payment_detected = "payment_detected"
     invoice_marked_paid = "invoice_marked_paid"
+    invoice_sent = "invoice_sent"
+    invoice_overdue = "invoice_overdue"
     reminder_generated = "reminder_generated"
+    negotiation_message = "negotiation_message"
     ai_query = "ai_query"
+    extension_auto_granted = "extension_auto_granted"
+    extension_requested = "extension_requested"
+    extension_approved = "extension_approved"
+    extension_denied = "extension_denied"
 
 
 class AuditSource(str, enum.Enum):

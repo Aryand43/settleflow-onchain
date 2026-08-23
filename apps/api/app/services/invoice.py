@@ -285,4 +285,18 @@ def mark_overdue(db: Session, invoice: Invoice, additional_days: int = 1) -> Inv
             event_type=EventType.invoice_overdue.value,
             message=f"Invoice {invoice.invoice_number} marked overdue",
         )
+    # Audited on every call, including the repeat ones: a second click leaves
+    # the status alone but still moves the due date backwards, and a trail
+    # that skipped those would disagree with the invoice it describes.
+    log_invoice_event(
+        db,
+        invoice.id,
+        "invoice_overdue",
+        "system",
+        event_data={
+            "due_date": invoice.due_date.isoformat(),
+            "days_applied": additional_days,
+            "was_already_overdue": was_already_overdue,
+        },
+    )
     return invoice

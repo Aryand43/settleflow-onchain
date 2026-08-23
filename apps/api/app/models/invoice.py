@@ -68,6 +68,9 @@ class Invoice(Base):
     negotiation_messages = relationship(
         "NegotiationMessage", back_populates="invoice", order_by="NegotiationMessage.created_at"
     )
+    extension_requests = relationship(
+        "ExtensionRequest", back_populates="invoice", order_by="ExtensionRequest.created_at"
+    )
 
 
 class InvoiceCounter(Base):

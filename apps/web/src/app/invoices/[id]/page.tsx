@@ -6,10 +6,13 @@ import { QRCodeSVG } from "qrcode.react";
 import {
   ArrowLeft,
   BellRing,
+  CalendarClock,
+  Check,
   ExternalLink,
   FastForward,
   MessageCircle,
   Send,
+  X,
 } from "lucide-react";
 import { StatusBadge } from "@/components/StatusBadge";
 import { AuditTimeline } from "@/components/invoice/AuditTimeline";
@@ -28,11 +31,18 @@ import {
   DEMO_MODE,
   type ActivityEvent,
   type EmailStatus,
+  type ExtensionRequest,
   type Invoice,
   type NegotiationMessage,
 } from "@/lib/api";
 import { useRequireAuth } from "@/lib/auth";
 import { cn, formatCurrency, formatDate, formatDateTime, formatDueRelative, truncateHash } from "@/lib/utils";
+
+function addDays(isoDate: string, days: number) {
+  const d = new Date(`${isoDate}T00:00:00`);
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0, 10);
+}
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -49,6 +59,7 @@ export default function InvoiceDetailPage({ params }: { params: { id: string } }
   const [invoice, setInvoice] = useState<Invoice | null>(null);
   const [activity, setActivity] = useState<ActivityEvent[]>([]);
   const [negotiation, setNegotiation] = useState<NegotiationMessage[]>([]);
+  const [extensions, setExtensions] = useState<ExtensionRequest[]>([]);
   const [emailStatus, setEmailStatus] = useState<EmailStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
@@ -59,16 +70,18 @@ export default function InvoiceDetailPage({ params }: { params: { id: string } }
 
   const load = useCallback(async () => {
     try {
-      const [inv, act, neg, mail] = await Promise.all([
+      const [inv, act, neg, mail, ext] = await Promise.all([
         api.invoice(id),
         api.invoiceActivity(id),
         api.invoiceMessages(id),
         api.emailStatus(),
+        api.invoiceExtensionRequests(id),
       ]);
       setInvoice(inv);
       setActivity(act);
       setNegotiation(neg);
       setEmailStatus(mail);
+      setExtensions(ext);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load");
     } finally {
@@ -141,6 +154,7 @@ export default function InvoiceDetailPage({ params }: { params: { id: string } }
   }
 
   const isPaid = invoice.status === "paid";
+  const pendingExtensions = extensions.filter((e) => e.status === "pending");
   const txUrl = invoice.blockchain_tx_hash ? explorerTxUrl(invoice.blockchain_tx_hash) : null;
 
   return (
@@ -312,6 +326,76 @@ export default function InvoiceDetailPage({ params }: { params: { id: string } }
               </p>
             )}
           </Card>
+
+          {pendingExtensions.length > 0 && (
+            <Card className="border-overdue/40 p-6">
+              <CardTitle>
+                <span className="inline-flex items-center gap-2">
+                  <CalendarClock aria-hidden className="h-4 w-4 text-overdue" />
+                  Needs your approval
+                </span>
+              </CardTitle>
+              <p className="mt-1 text-xs text-content-muted">
+                The agent extends a due date on its own only up to a small cap. Anything
+                longer stops here &mdash; the due date has not moved.
+              </p>
+              <ul className="mt-4 space-y-3">
+                {pendingExtensions.map((req) => (
+                  <li key={req.id} className="rounded border border-line bg-surface-sunken p-4">
+                    <p className="text-sm text-content">
+                      <span className="font-medium tabular">{req.requested_days} extra days</span>{" "}
+                      requested by {req.customer_name ?? "the customer"}
+                    </p>
+                    <p className="mt-1.5 text-sm italic text-content-secondary">
+                      &ldquo;{req.customer_message}&rdquo;
+                    </p>
+                    <p className="mt-1.5 text-xs text-content-muted">
+                      Would move the due date to{" "}
+                      <span className="tabular">
+                        {formatDate(addDays(invoice.due_date, req.requested_days))}
+                      </span>
+                      {" · asked "}
+                      {formatDateTime(req.created_at)}
+                    </p>
+                    <div className="mt-3 flex gap-2">
+                      <Button
+                        size="sm"
+                        loading={actionLoading === `approve-${req.id}`}
+                        disabled={actionLoading !== null}
+                        onClick={() =>
+                          runAction(`approve-${req.id}`, async () => {
+                            await api.decideExtensionRequest(req.id, true);
+                            return { message: `Approved ${req.requested_days} extra days.` };
+                          })
+                        }
+                      >
+                        <Check aria-hidden className="h-4 w-4" />
+                        Approve
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        loading={actionLoading === `deny-${req.id}`}
+                        disabled={actionLoading !== null}
+                        onClick={() =>
+                          runAction(`deny-${req.id}`, async () => {
+                            await api.decideExtensionRequest(req.id, false);
+                            return {
+                              message: "Extension denied — the due date is unchanged.",
+                              delivered: false,
+                            };
+                          })
+                        }
+                      >
+                        <X aria-hidden className="h-4 w-4" />
+                        Deny
+                      </Button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          )}
 
           {negotiation.length > 0 && (
             <Card className="p-6">

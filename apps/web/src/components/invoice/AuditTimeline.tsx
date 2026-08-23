@@ -65,6 +65,34 @@ const EVENT_COPY: Record<string, { title: string; description: string }> = {
     title: "AI query",
     description: "An AI assistant queried this invoice",
   },
+  invoice_sent: {
+    title: "Invoice sent",
+    description: "Invoice email issued to the customer",
+  },
+  invoice_overdue: {
+    title: "Marked overdue",
+    description: "Due date passed without payment",
+  },
+  negotiation_message: {
+    title: "Agent replied",
+    description: "Agent answered the customer without changing the invoice",
+  },
+  extension_auto_granted: {
+    title: "Extension auto-granted",
+    description: "Agent moved the due date within its own cap",
+  },
+  extension_requested: {
+    title: "Extension requested",
+    description: "Over the agent's cap — escalated for merchant approval",
+  },
+  extension_approved: {
+    title: "Extension approved",
+    description: "Merchant approved the extension; due date moved",
+  },
+  extension_denied: {
+    title: "Extension denied",
+    description: "Merchant declined; due date unchanged",
+  },
 };
 
 function sourceStyle(source: string) {
