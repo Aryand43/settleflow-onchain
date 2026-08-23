@@ -19,16 +19,50 @@ from app.services.invoice import log_activity
 MAX_AUTO_EXTENSION_DAYS = 7
 DEFAULT_EXTENSION_DAYS = 5
 
-EXTENSION_PATTERN = re.compile(r"(\d+)\s*(?:more\s*)?days?", re.IGNORECASE)
+# Durations, in whatever units a customer actually writes them.
+#
+# This used to match `(\d+)\s*days?` only, which meant "can I get a year to
+# pay?" classified as *generic* — the agent replied "I've shared it with the
+# merchant" and no approval request was ever opened, so the merchant had nothing
+# to approve or reject. Weeks, months and worded quantities all fell through the
+# same way. Only "30 days" in digits ever reached the approval path.
+UNIT_DAYS = {"day": 1, "week": 7, "fortnight": 14, "month": 30, "quarter": 90, "year": 365}
+
+WORD_NUMBERS = {
+    "a": 1, "an": 1, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6,
+    "seven": 7, "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12,
+    "couple": 2, "few": 3, "several": 3,
+}
+
+DURATION_PATTERN = re.compile(
+    # `of` is optional so "a couple of months" parses like "two months".
+    r"\b(\d+|" + "|".join(WORD_NUMBERS) + r")\s*(?:of\s+)?(?:more\s+|extra\s+)?"
+    r"(" + "|".join(UNIT_DAYS) + r")s?\b",
+    re.IGNORECASE,
+)
+
 EXTENSION_KEYWORDS = ("more time", "extend", "extension", "delay", "later", "push back")
 INSTALLMENT_KEYWORDS = ("installment", "instalment", "partial", "split", "half now", "payment plan")
+
+
+def requested_extension_days(message: str) -> int | None:
+    """How many days the customer asked for, or None if they didn't say.
+
+    Capped at ten years so a joke ("can I have a million years?") lands as a
+    large approval request rather than an integer that overflows a date."""
+    match = DURATION_PATTERN.search(message)
+    if not match:
+        return None
+    quantity, unit = match.group(1).lower(), match.group(2).lower()
+    count = int(quantity) if quantity.isdigit() else WORD_NUMBERS[quantity]
+    return min(count * UNIT_DAYS[unit], 3650)
 
 
 def _classify_intent(message: str) -> str:
     text = message.lower()
     if any(k in text for k in INSTALLMENT_KEYWORDS):
         return "installment"
-    if any(k in text for k in EXTENSION_KEYWORDS) or EXTENSION_PATTERN.search(text):
+    if any(k in text for k in EXTENSION_KEYWORDS) or DURATION_PATTERN.search(text):
         return "extension"
     return "generic"
 
@@ -75,8 +109,7 @@ def handle_customer_message(db: Session, invoice: Invoice, message: str) -> dict
     intent = _classify_intent(message)
 
     if intent == "extension":
-        match = EXTENSION_PATTERN.search(message)
-        requested_days = int(match.group(1)) if match else DEFAULT_EXTENSION_DAYS
+        requested_days = requested_extension_days(message) or DEFAULT_EXTENSION_DAYS
 
         if requested_days <= MAX_AUTO_EXTENSION_DAYS:
             invoice.due_date = invoice.due_date + timedelta(days=requested_days)
