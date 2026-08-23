@@ -86,30 +86,33 @@ export function ChatPanel({
           {messages.length > 0 && (
             <div
               ref={scroller}
-              className="mt-3 max-h-48 space-y-2 overflow-y-auto pr-1"
+              className="mt-3 max-h-64 overflow-y-auto pr-1"
             >
-              {messages.map((m, i) => (
-                <div
-                  key={`${m.role}-${i}`}
-                  className={cn(
-                    "max-w-[85%] rounded px-3 py-2 text-sm",
-                    m.role === "user"
-                      ? "ml-auto bg-accent/10 text-content"
-                      : "bg-surface-sunken text-content-secondary"
-                  )}
-                >
-                  <p className="whitespace-pre-wrap">{m.content}</p>
-                </div>
-              ))}
-              {sending && (
-                <div
-                  aria-live="polite"
-                  className="flex items-center gap-2 text-xs text-content-muted"
-                >
-                  <Loader2 aria-hidden className="h-3.5 w-3.5 animate-spin" />
-                  Reading your invoices…
-                </div>
-              )}
+              <div className="flex flex-col items-stretch gap-2.5">
+                {messages.map((m, i) => (
+                  <div
+                    key={`${m.role}-${i}`}
+                    className={cn(
+                      "w-fit max-w-[min(80%,28rem)] px-3 py-2 text-sm",
+                      m.role === "user"
+                        ? "ml-auto rounded-2xl rounded-br-md bg-accent text-accent-on"
+                        : "mr-auto rounded-2xl rounded-bl-md border border-line bg-surface-sunken text-content-secondary"
+                    )}
+                  >
+                    <span className="sr-only">{m.role === "user" ? "You" : "Assistant"}</span>
+                    <p className="whitespace-pre-wrap">{m.content}</p>
+                  </div>
+                ))}
+                {sending && (
+                  <div
+                    aria-live="polite"
+                    className="mr-auto flex w-fit max-w-[min(80%,28rem)] items-center gap-2 rounded-2xl rounded-bl-md border border-line bg-surface-sunken px-3 py-2 text-xs text-content-secondary"
+                  >
+                    <Loader2 aria-hidden className="h-3.5 w-3.5 animate-spin" />
+                    Reading your invoices…
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
