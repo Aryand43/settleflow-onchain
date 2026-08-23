@@ -297,17 +297,50 @@ Notes:
 Only Docker required — no Python, no Node, no virtualenv.
 
 ```bash
-cp .env.example .env      # optional; sensible defaults apply without it
-docker compose up --build -d
-docker compose run --rm api python scripts/seed.py
+make demo        # chain + contracts + api + web, then a pre-flight check
 ```
 
 Open <http://localhost:3000> and sign in as `demo@settleflow.app` / `settleflow`.
-`make up` and `make docker-seed` wrap the same two commands.
+
+Without the local chain (everything except real on-chain settlement):
+
+```bash
+make up
+make docker-seed
+```
 
 Two containers: `api` (FastAPI on 8000, healthchecked) and `web` (Next.js
 standalone on 3000, held back until the API reports healthy). Both run as
-non-root.
+non-root. `--profile chain` adds `anvil` and a one-shot `contracts` deployer.
+
+### Commands
+
+| Command | Does |
+|---------|------|
+| `make demo` | Everything: chain, contracts, containers, pre-flight. Start here. |
+| `make preflight` | Checks chain, email, LLM key and invoice count. **Run before recording.** |
+| `make up` / `make down` | Containers up (with rebuild) / everything down including anvil |
+| `make logs` | Follow all container logs |
+| `make docker-seed` | Seed without dropping anything |
+| `make docker-reset` | Drop all tables, reseed, pre-flight |
+| `make reset-all` | Reset the **chain and** the database together — use this between demo takes |
+| `make chain-up` / `make chain-deploy` | Start anvil / deploy the contracts to it |
+| `make install` / `make dev` / `make seed` | The non-Docker path |
+| `make test` | Backend suite (`make test-contracts` needs Foundry) |
+
+`make docker-reset` and `make reset-all` point the seeded customers at
+`DEMO_CUSTOMER_EMAIL` so reminder emails land somewhere you can open. Override
+it per run:
+
+```bash
+make reset-all DEMO_CUSTOMER_EMAIL=you@gmail.com
+```
+
+**Use `reset-all`, not `docker-reset`, when the chain is running.** On-chain
+invoice ids are derived from owner + invoice number, so a reseeded `INV-0001`
+lands on the same id as the old one. Reset only the database and the router
+still remembers the previous `INV-0001` as paid — the new one looks settled
+before anyone has paid it.
 
 ### Configuration
 
@@ -356,12 +389,20 @@ Two gotchas worth knowing before you debug something for twenty minutes:
 
 ### Local chain, for the real-settlement demo
 
-An opt-in profile replaces the manual Anvil-and-forge dance:
+`make demo` already does this. To drive it by hand:
 
 ```bash
-docker compose --profile chain up -d anvil       # or: make chain-up
-docker compose --profile chain run --rm contracts # or: make chain-deploy
+make chain-up        # docker compose --profile chain up -d anvil
+make chain-deploy    # docker compose --profile chain run --rm contracts
+docker compose up -d api
 ```
+
+**Anvil is ephemeral.** After `make down`, or a Docker restart, the chain is
+empty and the contracts are gone — re-run `make demo`. Addresses are Anvil's
+deterministic first two deploys, so `apps/api/.env` never needs editing, but
+the deploy step does have to happen again. Payment self-heals across this: if
+the router doesn't recognise an invoice it is registered on demand, so rows
+created before a chain restart stay payable.
 
 The second command installs the Solidity dependencies, deploys `MockUSDC` and
 `InvoicePaymentRouter`, and prints their addresses. Put them in `.env` — note
@@ -377,9 +418,8 @@ MERCHANT_PRIVATE_KEY=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf
 DEMO_PAYER_PRIVATE_KEY=0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d
 ```
 
-Then `docker compose up -d api`. The payment page should report
-`chain_configured: true`, and **Simulate payment** produces a genuine
-transaction hash instead of the `0xaaaa…` placeholder.
+`make preflight` should then report `chain configured: True`, and paying
+produces a genuine transaction hash instead of the `0xaaaa…` placeholder.
 
 Anvil's port 8545 is also published to the host, so `cast` works from your
 machine if you have Foundry installed.
