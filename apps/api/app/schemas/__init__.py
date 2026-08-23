@@ -124,6 +124,21 @@ class PaymentPageResponse(BaseModel):
     demo_mode: bool
     chain_configured: bool
 
+    # --- Everything the customer's wallet needs to pay this itself ---
+    # All public data: addresses and an RPC URL. No key material is ever exposed
+    # here, and the browser cannot sign anything without the customer's wallet.
+    chain_id: Optional[int] = None
+    rpc_url: Optional[str] = None
+    router_address: Optional[str] = None
+    usdc_address: Optional[str] = None
+    # The integer the contract expects (42 USDC -> 42000000). Sent as a string
+    # because JSON numbers are IEEE doubles and a uint256 does not always
+    # survive one; the frontend parses it straight to BigInt.
+    amount_base_units: Optional[str] = None
+    # False when the router has never seen this invoice. Paying it in that state
+    # reverts with InvalidInvoice, so the frontend registers it first.
+    registered_on_chain: bool = False
+
 
 class ActivityEventResponse(BaseModel):
     id: int

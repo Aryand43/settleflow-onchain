@@ -6,6 +6,7 @@ import { CircleCheck, Clock, Loader2, MessageCircle, TriangleAlert, Wallet } fro
 import { StatusBadge } from "@/components/StatusBadge";
 import { Button, CopyButton, inputStyles } from "@/components/ui";
 import { api, type NegotiationMessage, type PaymentPage } from "@/lib/api";
+import { WalletPay } from "@/components/WalletPay";
 import { cn, daysUntil, formatCurrency, formatDate } from "@/lib/utils";
 
 export default function PayPage({ params }: { params: { token: string } }) {
@@ -159,24 +160,36 @@ export default function PayPage({ params }: { params: { token: string } }) {
             ) : (
               <>
                 {/*
-                 * The QR and link ARE the real payment mechanism — no
-                 * wallet-connect flow is wired, so they stay the primary path.
-                 * The button below is explicitly the demo's stand-in wallet,
-                 * labelled as such; a CTA that pretended to be the real thing
-                 * would be a lie.
+                 * Wallet-connect is the real payment path when the chain is
+                 * configured: the customer's own wallet signs, and the backend
+                 * cannot forge that signature. The QR/link below is how they get
+                 * this page onto the device that holds the wallet, and the demo
+                 * button after it is an explicitly labelled stand-in for judges
+                 * without one.
                  */}
-                <p className="text-sm font-medium text-content">
-                  Pay in {data.currency} from your wallet
-                </p>
-                <p className="mt-1 text-sm text-content-muted">
-                  Scan this code with a wallet app, or copy the link to open it on another device.
-                </p>
+                {data.chain_configured && data.rpc_url && data.on_chain_invoice_id ? (
+                  <WalletPay page={data} onPaid={setData} />
+                ) : (
+                  <>
+                    <p className="text-sm font-medium text-content">
+                      Pay in {data.currency} from your wallet
+                    </p>
+                    <p className="mt-1 text-sm text-content-muted">
+                      On-chain settlement isn&rsquo;t configured, so there&rsquo;s nothing to sign yet.
+                    </p>
+                  </>
+                )}
 
-                <div className="mt-5 flex flex-col items-center gap-4">
-                  <div className="rounded bg-white p-4">
-                    <QRCodeSVG value={data.payment_url} size={168} />
+                <div className="mt-6 border-t border-line pt-5">
+                  <p className="text-sm text-content-muted">
+                    Paying from a different device? Scan this, or copy the link.
+                  </p>
+                  <div className="mt-4 flex flex-col items-center gap-4">
+                    <div className="rounded bg-white p-4">
+                      <QRCodeSVG value={data.payment_url} size={168} />
+                    </div>
+                    <CopyButton value={data.payment_url} label="Copy payment link" />
                   </div>
-                  <CopyButton value={data.payment_url} label="Copy payment link" />
                 </div>
 
                 {data.demo_mode && (
@@ -186,7 +199,7 @@ export default function PayPage({ params }: { params: { token: string } }) {
                     </p>
                     <p className="mt-1 text-xs text-content-muted">
                       {data.chain_configured
-                        ? "Pays this invoice from the demo wallet, so you don't need a funded wallet to try it. It signs a real transaction on the testnet."
+                        ? "No wallet to hand? This pays from the demo's own wallet instead — a real on-chain transaction, but signed by the server rather than by you."
                         : "Marks this invoice paid so you can try the flow. No transaction is broadcast."}
                     </p>
                     {payError && <p className="mt-2 text-xs text-overdue">{payError}</p>}

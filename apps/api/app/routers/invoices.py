@@ -21,7 +21,14 @@ from app.schemas import (
     PaymentPageResponse,
 )
 from app.models.activity import EventType
-from app.services.blockchain import chain_ready, pay_invoice_onchain, scan_blockchain_events
+from app.services.blockchain import (
+    chain_ready,
+    ensure_registered,
+    fund_wallet,
+    pay_invoice_onchain,
+    payment_request_exists,
+    scan_blockchain_events,
+)
 from app.services.email import get_email_service
 from app.services.invoice import (
     create_invoice,
@@ -54,8 +61,22 @@ def _owned_invoice(db: Session, invoice_id: int, user: User) -> Invoice:
     return invoice
 
 
+def _registered_on_chain(invoice: Invoice) -> bool:
+    """Whether the router already knows this invoice.
+
+    Deliberately swallows RPC failures: this only decides whether the frontend
+    offers a 'register' step first. A chain that is briefly unreachable should
+    render a payment page that says so, not a 500 that hides the invoice.
+    """
+    try:
+        return payment_request_exists(invoice)
+    except Exception:
+        return False
+
+
 def _payment_page(invoice: Invoice) -> PaymentPageResponse:
     settings = get_settings()
+    chain_configured = bool(settings.rpc_url and settings.payment_contract_address)
     return PaymentPageResponse(
         # The freelancer's own name, not a global setting — the customer should
         # see who is actually billing them.
@@ -71,7 +92,15 @@ def _payment_page(invoice: Invoice) -> PaymentPageResponse:
         payment_token=invoice.payment_token,
         on_chain_invoice_id=invoice.on_chain_invoice_id,
         demo_mode=settings.demo_mode,
-        chain_configured=bool(settings.rpc_url and settings.payment_contract_address),
+        chain_configured=chain_configured,
+        chain_id=settings.chain_id,
+        # public_rpc_url wins when set: the browser and the API do not always
+        # reach the chain at the same address (see config.py).
+        rpc_url=(settings.public_rpc_url or settings.rpc_url) if chain_configured else None,
+        router_address=settings.payment_contract_address if chain_configured else None,
+        usdc_address=settings.usdc_contract_address if chain_configured else None,
+        amount_base_units=str(invoice.amount_wei_or_base_units),
+        registered_on_chain=_registered_on_chain(invoice) if chain_configured else False,
     )
 
 
@@ -521,3 +550,99 @@ def invoice_activity(
         }
         for e in events
     ]
+
+
+# --- Wallet-connect surface --------------------------------------------------
+# These three back the flow where the *customer's own wallet* signs the payment,
+# rather than the server signing on their behalf with DEMO_PAYER_PRIVATE_KEY.
+# Like the rest of the by-token surface they take no auth: the payment token is
+# the customer's only credential, and none of them can move money anywhere the
+# invoice does not already say it should go.
+
+
+def _invoice_by_token(db: Session, payment_token: str) -> Invoice:
+    invoice = (
+        db.query(Invoice)
+        .options(joinedload(Invoice.customer), joinedload(Invoice.owner))
+        .filter(Invoice.payment_token == payment_token)
+        .first()
+    )
+    if not invoice:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    return invoice
+
+
+@router.post("/by-token/{payment_token}/register", response_model=PaymentPageResponse)
+def register_by_token(payment_token: str, db: Session = Depends(get_db)):
+    """Puts this invoice on the router so a wallet can pay it.
+
+    Only the merchant key may call `createPaymentRequest`, so the customer's
+    wallet cannot do this itself. Invoices are normally registered at creation
+    time; this covers the ones that were not — seeded rows, or a creation that
+    happened while the chain was unreachable.
+    """
+    invoice = _invoice_by_token(db, payment_token)
+    settings = get_settings()
+    if not chain_ready(settings):
+        raise HTTPException(status_code=503, detail="Blockchain is not configured")
+
+    try:
+        if not ensure_registered(invoice):
+            raise RuntimeError("registration did not take effect")
+    except Exception as exc:
+        log_activity(
+            db,
+            invoice_id=invoice.id,
+            event_type=EventType.payment_failed.value,
+            message=f"On-chain registration failed for {invoice.invoice_number}: {exc}",
+        )
+        raise HTTPException(
+            status_code=502, detail=f"Could not register this invoice on-chain: {exc}"
+        ) from exc
+
+    return _payment_page(invoice)
+
+
+@router.post("/by-token/{payment_token}/fund", response_model=dict)
+def fund_by_token(payment_token: str, body: dict, db: Session = Depends(get_db)):
+    """Demo faucet: gives the connected wallet gas and enough USDC for this invoice.
+
+    DEMO_MODE only. This mints an unlimited-supply mock token and hands out
+    devnet gas, which is exactly what you want for a demo and exactly what you
+    do not want anywhere else.
+    """
+    settings = get_settings()
+    if not settings.demo_mode:
+        raise HTTPException(status_code=403, detail="The faucet is only available in DEMO_MODE")
+    if not chain_ready(settings):
+        raise HTTPException(status_code=503, detail="Blockchain is not configured")
+
+    address = (body or {}).get("address", "")
+    if not isinstance(address, str) or not address.startswith("0x") or len(address) != 42:
+        raise HTTPException(status_code=400, detail="A wallet address is required")
+
+    invoice = _invoice_by_token(db, payment_token)
+    try:
+        return fund_wallet(address, invoice.amount_wei_or_base_units)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Could not fund that wallet: {exc}") from exc
+
+
+@router.post("/by-token/{payment_token}/settle", response_model=PaymentPageResponse)
+def settle_by_token(payment_token: str, db: Session = Depends(get_db)):
+    """Reconciles this invoice against the chain after a wallet has paid it.
+
+    Note what this deliberately does *not* do: trust the caller. It takes no
+    transaction hash and marks nothing paid on request. It rescans for the
+    router's own `InvoicePaid` events, which is the same path the server-side
+    demo payment uses. A customer who calls this without having paid gets their
+    invoice back unchanged.
+    """
+    invoice = _invoice_by_token(db, payment_token)
+    settings = get_settings()
+    if not chain_ready(settings):
+        raise HTTPException(status_code=503, detail="Blockchain is not configured")
+
+    scan_blockchain_events(db)
+    db.refresh(invoice)
+    return _payment_page(invoice)

@@ -58,6 +58,13 @@ class Settings(BaseSettings):
 
     chain_id: Optional[int] = None
     rpc_url: Optional[str] = None
+
+    # What the *browser* should use to reach the chain, when that differs from
+    # what the API uses. Under Docker Compose the API talks to `http://anvil:8545`
+    # over the compose network, a hostname no browser can resolve — the customer's
+    # wallet needs `http://localhost:8545` instead. Hosted deployments reach the
+    # same public URL from both sides, so this stays unset and falls back.
+    public_rpc_url: Optional[str] = None
     payment_contract_address: Optional[str] = None
     usdc_contract_address: Optional[str] = None
     merchant_private_key: Optional[str] = None

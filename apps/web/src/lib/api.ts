@@ -206,6 +206,14 @@ export type PaymentPage = {
   on_chain_invoice_id: string | null;
   demo_mode: boolean;
   chain_configured: boolean;
+  // Everything the customer's wallet needs to pay this itself. All public;
+  // amount_base_units is a string so a uint256 survives JSON intact.
+  chain_id: number | null;
+  rpc_url: string | null;
+  router_address: string | null;
+  usdc_address: string | null;
+  amount_base_units: string | null;
+  registered_on_chain: boolean;
 };
 
 async function apiFetch<T>(path: string, options: RequestInit = {}, auth = true): Promise<T> {
@@ -340,6 +348,16 @@ export const api = {
     ),
   paymentPage: (token: string) =>
     apiFetch<PaymentPage>(`/api/invoices/by-token/${token}/payment-page`, {}, false),
+  registerByToken: (token: string) =>
+    apiFetch<PaymentPage>(`/api/invoices/by-token/${token}/register`, { method: "POST" }, false),
+  fundByToken: (token: string, address: string) =>
+    apiFetch<{ gas_method: string; mint_tx: string }>(
+      `/api/invoices/by-token/${token}/fund`,
+      { method: "POST", body: JSON.stringify({ address }) },
+      false
+    ),
+  settleByToken: (token: string) =>
+    apiFetch<PaymentPage>(`/api/invoices/by-token/${token}/settle`, { method: "POST" }, false),
   payByToken: (token: string) =>
     apiFetch<{ message: string; payment_page: PaymentPage }>(
       `/api/invoices/by-token/${token}/pay`,
