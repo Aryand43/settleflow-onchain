@@ -24,6 +24,7 @@ app.add_middleware(
         "http://127.0.0.1:3000",
         "http://localhost:3001",
         "http://127.0.0.1:3001",
+        "https://settleflow-onchain.vercel.app",
     ],
     # Next.js hops to 3001+ when 3000 is already taken.
     allow_origin_regex=r"http://(localhost|127\.0\.0\.1):\d+",
